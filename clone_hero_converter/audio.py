@@ -241,9 +241,12 @@ def analizar(ruta: str, verbose: bool = True) -> AnalisisCancion:
 
         if verbose:
             print("🎻 Detectando línea de bajo...")
-        y_bajo = _filtrar_banda(y_harm, sr, f_max=250.0)
+        # Banda típica de bajo (E1-G3 aprox., con margen): el bajo suele ser
+        # una línea monofónica, así que el seguimiento de pitch fundamental
+        # es más fiable aquí que el croma de banda ancha.
+        y_bajo = _filtrar_banda(y_harm, sr, f_max=300.0)
         onsets_bajo, fuerza_bajo = _onsets_con_fuerza(y_bajo, sr)
-        tono_bajo = _croma_en_onsets(y_bajo, sr, onsets_bajo)
+        tono_bajo = _pitch_en_onsets(y_bajo, sr, onsets_bajo, fmin=41.0, fmax=300.0)
 
         if verbose:
             print("🥁 Detectando golpes de batería...")
