@@ -132,6 +132,12 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"🎮 Clone Hero Converter v{__version__}")
 
+    try:
+        import static_ffmpeg
+        static_ffmpeg.add_paths()
+    except ImportError:
+        pass
+
     if not os.path.exists(args.archivo):
         print(f"❌ No existe el archivo: {args.archivo}", file=sys.stderr)
         return 1
