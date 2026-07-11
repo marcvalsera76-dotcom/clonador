@@ -1,216 +1,507 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b0e14">
+<title>PerpVision — Análisis cripto en tiempo real</title>
+<style>
+  :root{
+    --bg:#0b0e14; --card:#131722; --card2:#1a2030; --border:#242b3d;
+    --text:#e8ecf4; --muted:#8b93a7; --accent:#4f8cff;
+    --green:#16c784; --red:#ea3943; --yellow:#f5b83d;
+    --radius:12px; --font:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{-webkit-text-size-adjust:100%}
+  body{background:var(--bg);color:var(--text);font-family:var(--font);font-size:15px;line-height:1.45;padding:12px;max-width:760px;margin:0 auto;padding-bottom:48px}
+  h1{font-size:19px;display:flex;align-items:center;gap:8px}
+  h1 small{font-size:12px;color:var(--muted);font-weight:400}
+  header{display:flex;justify-content:space-between;align-items:center;margin:4px 0 14px}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:14px;margin-bottom:12px}
+  label{font-size:12px;color:var(--muted);display:block;margin-bottom:4px}
+  input,select,textarea{width:100%;background:var(--card2);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:9px 11px;font-size:14px;font-family:var(--font)}
+  input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
+  .row{display:flex;gap:8px}.row>*{flex:1}
+  button{cursor:pointer;border:none;border-radius:8px;font-size:14px;font-weight:600;padding:11px 16px;font-family:var(--font);transition:opacity .15s}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  .btn-primary{background:var(--accent);color:#fff;width:100%;font-size:16px;padding:13px}
+  .btn-ghost{background:var(--card2);color:var(--text);border:1px solid var(--border)}
+  .btn-sm{padding:7px 12px;font-size:13px}
+  #drop{border:2px dashed var(--border);border-radius:var(--radius);padding:22px 14px;text-align:center;color:var(--muted);cursor:pointer;transition:border-color .15s;position:relative}
+  #drop.drag{border-color:var(--accent);color:var(--accent)}
+  #drop.has-img{padding:8px;border-style:solid}
+  #drop img{max-width:100%;max-height:230px;border-radius:8px;display:block;margin:0 auto}
+  #drop .hint{font-size:12px;margin-top:6px}
+  .badge{display:inline-block;padding:3px 10px;border-radius:99px;font-size:12px;font-weight:600}
+  .b-green{background:rgba(22,199,132,.15);color:var(--green)}
+  .b-red{background:rgba(234,57,67,.15);color:var(--red)}
+  .b-yellow{background:rgba(245,184,61,.15);color:var(--yellow)}
+  .b-gray{background:rgba(139,147,167,.15);color:var(--muted)}
+  #steps{display:none;flex-direction:column;gap:7px;font-size:13px}
+  .step{display:flex;align-items:center;gap:8px;color:var(--muted)}
+  .step.on{color:var(--text)} .step.done{color:var(--green)}
+  .step .dot{width:8px;height:8px;border-radius:50%;background:var(--border);flex:none}
+  .step.on .dot{background:var(--accent);animation:pulse 1s infinite}
+  .step.done .dot{background:var(--green)}
+  @keyframes pulse{50%{opacity:.35}}
+  .verdict{text-align:center;padding:18px 14px}
+  .verdict .dir{font-size:30px;font-weight:800;letter-spacing:1px}
+  .verdict .dir.long{color:var(--green)} .verdict .dir.short{color:var(--red)} .verdict .dir.wait{color:var(--yellow)}
+  .verdict .conf{color:var(--muted);font-size:13px;margin-top:2px}
+  .levels{display:grid;grid-template-columns:repeat(auto-fit,minmax(105px,1fr));gap:8px;margin-top:14px}
+  .lvl{background:var(--card2);border-radius:8px;padding:8px 6px;text-align:center}
+  .lvl b{display:block;font-size:15px}
+  .lvl span{font-size:11px;color:var(--muted)}
+  .horiz{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+  .hz{background:var(--card2);border-radius:8px;padding:10px 6px;text-align:center}
+  .hz .t{font-size:11px;color:var(--muted)}
+  .hz .v{font-weight:700;font-size:14px;margin:3px 0}
+  .hz .c{font-size:10px;color:var(--muted)}
+  ul.reasons{padding-left:18px;font-size:13.5px}
+  ul.reasons li{margin-bottom:5px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  td{padding:5px 4px;border-bottom:1px solid var(--border)}
+  td:last-child{text-align:right;font-variant-numeric:tabular-nums}
+  .src{font-size:12px;color:var(--muted)}
+  .src a{color:var(--accent);text-decoration:none}
+  .warn{background:rgba(245,184,61,.1);border:1px solid rgba(245,184,61,.35);color:var(--yellow);border-radius:8px;padding:9px 11px;font-size:13px;margin-bottom:10px}
+  .err{background:rgba(234,57,67,.1);border:1px solid rgba(234,57,67,.35);color:var(--red);border-radius:8px;padding:10px 12px;font-size:13.5px;margin-bottom:10px}
+  .disclaimer{font-size:11px;color:var(--muted);text-align:center;margin-top:14px}
+  details summary{cursor:pointer;font-size:13px;color:var(--muted);margin-bottom:8px}
+  .sec-title{font-size:13px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px}
+  #cfg{display:none}
+  #cfg.open{display:block}
+  .ts{font-size:11px;color:var(--muted);text-align:right;margin-top:8px}
+  @media(max-width:480px){.horiz{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>⚡ PerpVision <small>análisis perp en tiempo real</small></h1>
+  <button class="btn-ghost btn-sm" onclick="document.getElementById('cfg').classList.toggle('open')">⚙️</button>
+</header>
+
+<div class="card" id="cfg">
+  <label>Clave API de Google Gemini (gratis en <a href="https://aistudio.google.com/apikey" target="_blank" style="color:var(--accent)">aistudio.google.com/apikey</a>) — se guarda solo en tu navegador</label>
+  <div class="row">
+    <input type="password" id="apiKey" placeholder="AIza...">
+    <select id="model" style="flex:0 0 165px">
+      <option value="gemini-2.5-flash">Flash (rápido)</option>
+      <option value="gemini-2.5-pro">Pro (más preciso)</option>
+    </select>
+  </div>
+  <div style="margin-top:8px"><button class="btn-ghost btn-sm" onclick="saveKey()">Guardar clave</button> <span id="keyStatus" class="src"></span></div>
+</div>
+
+<div class="card">
+  <div id="drop" onclick="document.getElementById('file').click()">
+    <div id="dropInner">📷 <b>Sube un pantallazo del gráfico</b><div class="hint">Toca, arrastra o pega (Ctrl+V) una captura de TradingView, Binance, Bybit…</div></div>
+  </div>
+  <input type="file" id="file" accept="image/*" hidden>
+  <div class="row" style="margin-top:10px">
+    <div>
+      <label>Símbolo (auto-detectado del pantallazo, corrígelo si hace falta)</label>
+      <input id="symbol" placeholder="p. ej. BTC, ETHUSDT, SOL…" autocapitalize="characters">
+    </div>
+  </div>
+  <div style="margin-top:10px">
+    <button class="btn-primary" id="go" onclick="analyze()">Analizar mercado</button>
+  </div>
+  <div class="src" style="margin-top:8px">💡 Modo rápido: escribe solo el símbolo (sin imagen) para saltar la lectura del gráfico y ganar segundos en movimientos bruscos.</div>
+</div>
+
+<div class="card" id="stepsCard" style="display:none">
+  <div id="steps">
+    <div class="step" id="st1"><span class="dot"></span>Leyendo el gráfico con IA (visión)</div>
+    <div class="step" id="st2"><span class="dot"></span>Obteniendo datos en vivo: Binance Spot + Futuros</div>
+    <div class="step" id="st3"><span class="dot"></span>Contrastando precio con Bybit y CoinGecko</div>
+    <div class="step" id="st4"><span class="dot"></span>Calculando indicadores (EMA, RSI, MACD, ATR, S/R)</div>
+    <div class="step" id="st5"><span class="dot"></span>Generando veredicto con datos verificados</div>
+  </div>
+</div>
+
+<div id="out"></div>
+
+<div class="disclaimer">Herramienta informativa. No es asesoramiento financiero. Los derivados con apalancamiento conllevan alto riesgo de pérdida total.</div>
+
 <script>
-    // ==================== CONFIGURACIÓN Y CONSTANTES ====================
-    const GEMINI_URL = (key) => `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`;
+'use strict';
+/* ============================================================
+   PerpVision — arquitectura anti-alucinación:
+   1) La IA de visión SOLO extrae lo visible en el pantallazo.
+   2) Todos los números (precio, funding, OI, EMA, RSI, MACD,
+      ATR, soportes/resistencias) vienen de APIs públicas y se
+      calculan aquí en JS de forma determinista. La IA nunca
+      inventa cifras.
+   3) La IA final SOLO interpreta ese JSON verificado, cita la
+      fuente de cada dato y responde NEED_INFO si falta algo.
+   ============================================================ */
 
-    const SYSTEM_PROMPT = `Eres un sistema experto en seguridad química industrial...`; 
-    // (Mantengo tu prompt original completo aquí - cópialo tal cual)
+const GEMINI = (m,k)=>`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${k}`;
 
-    let currentResMode = 'foto';
-    let currentEtqMode = 'foto';
-    let currentImageBase64 = null;
-    let historial = [];
+const VISION_PROMPT = `Eres un lector de gráficos financieros. Mira la captura de pantalla y extrae ÚNICAMENTE lo que sea claramente visible. PROHIBIDO adivinar o inferir lo que no se ve.
+Devuelve SOLO este JSON:
+{
+ "simbolo": "ticker base visible, p.ej. BTC, ETH, SOL, o null si no es legible",
+ "par": "par completo visible, p.ej. BTCUSDT, o null",
+ "timeframe": "temporalidad visible del gráfico (1m,5m,15m,1h,4h,1D...) o null",
+ "exchange": "plataforma visible o null",
+ "ultimo_precio_visible": "número visible en pantalla o null",
+ "elementos_visibles": ["lista corta: indicadores, líneas, patrones EVIDENTES"],
+ "confianza": 0.0,
+ "necesita_confirmacion": true/false,
+ "pregunta": "si el símbolo no es legible con confianza >0.7, formula UNA pregunta breve al usuario; si no, null"
+}
+Reglas: si algo no es legible → null. confianza = tu certeza (0-1) sobre el símbolo. No analices tendencia aquí. No inventes NADA.`;
 
-    // ==================== UTILIDADES ====================
-    function showToast(msg, type = 'ok') {
-      const toast = document.getElementById('toast');
-      toast.textContent = msg;
-      toast.className = `toast show ${type}`;
-      setTimeout(() => toast.classList.remove('show'), 2800);
-    }
+const ANALYSIS_PROMPT = `Eres un analista cuantitativo de derivados cripto. Recibirás DATOS_VERIFICADOS: un JSON con datos de mercado en tiempo real obtenidos hace segundos de APIs públicas (Binance, Bybit, CoinGecko, Alternative.me) e indicadores calculados matemáticamente. Es tu ÚNICA fuente de verdad.
 
-    function saveLocal(key, data) {
-      localStorage.setItem(key, JSON.stringify(data));
-    }
+REGLAS ESTRICTAS (anti-alucinación):
+1. PROHIBIDO usar cualquier precio, nivel o cifra que no esté en DATOS_VERIFICADOS. Cada número de tu respuesta debe ser copiable desde ese JSON (entradas/SL/TP deben derivarse de soportes, resistencias, ATR o precio actual del JSON, y debes decir de cuál).
+2. Cada afirmación relevante debe indicar su fuente en el campo "fuentes".
+3. Si los datos son insuficientes o contradictorios para un veredicto responsable, responde estado:"NEED_INFO" con preguntas concretas. Es preferible preguntar a equivocarse.
+4. Las proyecciones a 4/8/12h son ESCENARIOS PROBABILÍSTICOS basados en estructura técnica, funding, open interest y sentimiento del JSON — nunca certezas. Exprésalo con el campo confianza y nunca superes 0.75 de confianza en una proyección.
+5. Si hay advertencias en el JSON (divergencia de precio entre fuentes, datos faltantes), redúcelas en "avisos" y baja la confianza.
+6. Si la dirección no está clara, el veredicto correcto es "ESPERAR". No fuerces una operación.
+7. Sé breve: frases cortas, sin relleno. El usuario opera en movimientos rápidos.
 
-    function loadLocal(key) {
-      try {
-        return JSON.parse(localStorage.getItem(key)) || [];
-      } catch { return []; }
-    }
+Devuelve SOLO este JSON:
+{
+ "estado": "OK" | "NEED_INFO",
+ "preguntas": ["solo si NEED_INFO"],
+ "tendencia_actual": {"direccion":"ALCISTA|BAJISTA|LATERAL","fuerza":"fuerte|moderada|débil","resumen":"1-2 frases con los datos clave que la sustentan"},
+ "proyeccion": {
+   "h4":{"sesgo":"ALCISTA|BAJISTA|LATERAL","confianza":0.0,"razon":"1 frase"},
+   "h8":{"sesgo":"...","confianza":0.0,"razon":"1 frase"},
+   "h12":{"sesgo":"...","confianza":0.0,"razon":"1 frase"}
+ },
+ "operacion": {
+   "veredicto":"LONG|SHORT|ESPERAR",
+   "confianza":0.0,
+   "zona_entrada":[num,num] | null,
+   "stop_loss":num | null,
+   "tp1":num | null, "tp2":num | null,
+   "invalidacion":"qué anularía la idea, con nivel del JSON",
+   "gestion":"1 frase: tamaño/apalancamiento prudente y por qué"
+ },
+ "razones":["3-5 viñetas cortas, cada una con su dato y fuente entre paréntesis"],
+ "avisos":["advertencias de calidad de datos o riesgo, si las hay"],
+ "fuentes":[{"dato":"qué","fuente":"Binance Futures|Binance Spot|Bybit|CoinGecko|Alternative.me|Cálculo local (klines Binance)"}]
+}`;
 
-    // ==================== MANEJO DE IMÁGENES ====================
-    function handleImage(fileInput, prefix) {
-      const file = fileInput.files[0];
-      if (!file) return;
+let apiKey='', imgB64=null, visionCache=null, lastData=null;
 
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        currentImageBase64 = e.target.result;
-        const preview = document.getElementById(prefix + '-preview');
-        const area = document.getElementById(prefix + '-upload-area');
-        
-        preview.src = currentImageBase64;
-        area.classList.add('has-image');
-        
-        checkButtonState(prefix);
-      };
-      reader.readAsDataURL(file);
-    }
+/* ---------- utilidades UI ---------- */
+const $=id=>document.getElementById(id);
+function saveKey(){apiKey=$('apiKey').value.trim();localStorage.setItem('pv_key',apiKey);localStorage.setItem('pv_model',$('model').value);$('keyStatus').textContent=apiKey?'✅ guardada':'';}
+function setStep(n,state){const s=$('st'+n);if(!s)return;s.classList.remove('on','done');if(state)s.classList.add(state);}
+function stepsReset(){$('stepsCard').style.display='block';$('steps').style.display='flex';[1,2,3,4,5].forEach(i=>setStep(i,null));}
+function fmt(n){if(n==null||isNaN(n))return '—';n=+n;if(n>=1000)return n.toLocaleString('es-ES',{maximumFractionDigits:1});if(n>=1)return n.toLocaleString('es-ES',{maximumFractionDigits:4});return n.toLocaleString('es-ES',{maximumFractionDigits:8});}
+function esc(s){return String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 
-    function triggerFileInput(prefix) {
-      document.getElementById(prefix + '-gallery').click();
-    }
+/* ---------- imagen ---------- */
+function setImage(file){
+  if(!file||!file.type.startsWith('image/'))return;
+  const r=new FileReader();
+  r.onload=e=>{imgB64=e.target.result;visionCache=null;
+    $('dropInner').innerHTML=`<img src="${imgB64}" alt="captura"><div class="hint">Toca para cambiar la imagen</div>`;
+    $('drop').classList.add('has-img');};
+  r.readAsDataURL(file);
+}
+$('file').addEventListener('change',e=>setImage(e.target.files[0]));
+const drop=$('drop');
+['dragover','dragenter'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('drag');}));
+['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('drag');}));
+drop.addEventListener('drop',e=>setImage(e.dataTransfer.files[0]));
+document.addEventListener('paste',e=>{const it=[...(e.clipboardData?.items||[])].find(i=>i.type.startsWith('image/'));if(it)setImage(it.getAsFile());});
 
-    function checkButtonState(prefix) {
-      const btn = document.getElementById(prefix === 'res' ? 'btn-clasificar' : 'btn-verificar');
-      const hasImage = !!currentImageBase64;
-      const hasText = document.getElementById(prefix + '-desc').value.trim().length > 0;
-      btn.disabled = !(hasImage || hasText);
-    }
+/* ---------- Gemini ---------- */
+async function gemini(parts,maxTokens){
+  const model=$('model').value;
+  const body={contents:[{parts}],generationConfig:{temperature:0.2,maxOutputTokens:maxTokens||4096,responseMimeType:'application/json'}};
+  const r=await fetch(GEMINI(model,apiKey),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  if(!r.ok){const t=await r.text();throw new Error(`Gemini ${r.status}: ${t.slice(0,200)}`);}
+  const d=await r.json();
+  const txt=d.candidates?.[0]?.content?.parts?.map(p=>p.text||'').join('')||'';
+  if(!txt)throw new Error('La IA no devolvió respuesta (posible bloqueo de seguridad o cuota).');
+  const m=txt.match(/\{[\s\S]*\}/);
+  return JSON.parse(m?m[0]:txt);
+}
 
-    // ==================== CAMBIO DE PESTAÑAS ====================
-    function switchTab(tab) {
-      document.querySelectorAll('.tab-content').forEach(t => t.classList.add('hidden'));
-      document.getElementById(`tab-${tab}`).classList.remove('hidden');
+/* ---------- datos de mercado ---------- */
+async function j(url,timeout=8000){
+  const c=new AbortController();const t=setTimeout(()=>c.abort(),timeout);
+  try{const r=await fetch(url,{signal:c.signal});if(!r.ok)throw new Error(`HTTP ${r.status}`);return await r.json();}
+  finally{clearTimeout(t);}
+}
+const safe=p=>p.then(v=>({ok:true,v})).catch(e=>({ok:false,e:String(e.message||e)}));
 
-      document.querySelectorAll('.nav-item').forEach(item => item.classList.remove('on'));
-      document.querySelector(`[onclick="switchTab('${tab}')"]`).classList.add('on');
-    }
+function normSymbol(raw){
+  let s=String(raw||'').toUpperCase().trim().replace(/\.P$/,'').replace(/PERP$/,'');
+  s=s.replace(/[^A-Z0-9]/g,'');
+  if(/(USDT|USDC|FDUSD)$/.test(s))return s.replace(/(USDC|FDUSD)$/,'USDT');
+  if(/USD$/.test(s))return s.replace(/USD$/,'USDT');
+  return s+'USDT';
+}
 
-    function setResMode(mode) {
-      currentResMode = mode;
-      document.getElementById('res-foto-panel').classList.toggle('hidden', mode !== 'foto');
-      document.getElementById('res-texto-panel').classList.toggle('hidden', mode !== 'texto');
-      
-      document.querySelectorAll('#tab-residuos .mode-btn').forEach(b => 
-        b.classList.toggle('on', b.getAttribute('onclick').includes(mode))
-      );
-    }
+/* --- indicadores deterministas (calculados aquí, no por la IA) --- */
+function emaArr(vals,p){const k=2/(p+1);const out=[];let e=vals.slice(0,p).reduce((a,b)=>a+b,0)/p;
+  for(let i=0;i<vals.length;i++){if(i<p-1){out.push(null);continue;}if(i===p-1){out.push(e);continue;}e=vals[i]*k+e*(1-k);out.push(e);}return out;}
+function rsi(closes,p=14){if(closes.length<p+1)return null;let g=0,l=0;
+  for(let i=1;i<=p;i++){const d=closes[i]-closes[i-1];d>=0?g+=d:l-=d;}
+  let ag=g/p,al=l/p;
+  for(let i=p+1;i<closes.length;i++){const d=closes[i]-closes[i-1];ag=(ag*(p-1)+Math.max(d,0))/p;al=(al*(p-1)+Math.max(-d,0))/p;}
+  return al===0?100:100-100/(1+ag/al);}
+function macdHist(closes){if(closes.length<35)return null;const e12=emaArr(closes,12),e26=emaArr(closes,26);
+  const line=closes.map((_,i)=>e12[i]!=null&&e26[i]!=null?e12[i]-e26[i]:null).filter(v=>v!=null);
+  const sig=emaArr(line,9);const h=line[line.length-1]-sig[sig.length-1];
+  const hPrev=line[line.length-2]-(emaArr(line.slice(0,-1),9).pop());
+  return{hist:h,creciente:h>hPrev};}
+function atr(kl,p=14){if(kl.length<p+1)return null;const trs=[];
+  for(let i=1;i<kl.length;i++){const h=+kl[i][2],l=+kl[i][3],pc=+kl[i-1][4];trs.push(Math.max(h-l,Math.abs(h-pc),Math.abs(l-pc)));}
+  let a=trs.slice(0,p).reduce((x,y)=>x+y,0)/p;
+  for(let i=p;i<trs.length;i++)a=(a*(p-1)+trs[i])/p;return a;}
+function pivots(kl,price){const res=[],sup=[];
+  for(let i=2;i<kl.length-2;i++){
+    const h=+kl[i][2],l=+kl[i][3];
+    if(h>+kl[i-1][2]&&h>+kl[i-2][2]&&h>+kl[i+1][2]&&h>+kl[i+2][2]&&h>price)res.push(h);
+    if(l<+kl[i-1][3]&&l<+kl[i-2][3]&&l<+kl[i+1][3]&&l<+kl[i+2][3]&&l<price)sup.push(l);}
+  const dedupe=arr=>{const out=[];for(const v of arr){if(!out.some(o=>Math.abs(o-v)/v<0.004))out.push(v);}return out;};
+  return{resistencias:dedupe(res.sort((a,b)=>a-b)).slice(0,3),soportes:dedupe(sup.sort((a,b)=>b-a)).slice(0,3)};}
+function tfAnalysis(kl){
+  const closes=kl.map(k=>+k[4]);const c=closes[closes.length-1];
+  const e20=emaArr(closes,20).pop(),e50=emaArr(closes,50).pop(),e200=closes.length>=200?emaArr(closes,200).pop():null;
+  const r=rsi(closes),m=macdHist(closes),a=atr(kl),pv=pivots(kl,c);
+  let t='lateral/mixta';
+  if(c>e20&&e20>e50)t='alcista';else if(c<e20&&e20<e50)t='bajista';
+  const round=v=>v==null?null:+v.toPrecision(6);
+  return{cierre:round(c),ema20:round(e20),ema50:round(e50),ema200:round(e200),rsi14:r!=null?+r.toFixed(1):null,
+    macd_hist:m?+m.hist.toPrecision(4):null,macd_creciente:m?m.creciente:null,atr14:round(a),
+    tendencia_local:t,soportes:pv.soportes.map(round),resistencias:pv.resistencias.map(round),
+    variacion_pct:+(((c-closes[0])/closes[0])*100).toFixed(2)};
+}
 
-    function setEtqMode(mode) {
-      currentEtqMode = mode;
-      // Similar al de residuos...
-    }
+async function fetchMarket(pair){
+  const base=pair.replace(/USDT$/,'');
+  setStep(2,'on');
+  const [k15,k1,k4,t24]=await Promise.all([
+    safe(j(`https://api.binance.com/api/v3/klines?symbol=${pair}&interval=15m&limit=200`)),
+    safe(j(`https://api.binance.com/api/v3/klines?symbol=${pair}&interval=1h&limit=200`)),
+    safe(j(`https://api.binance.com/api/v3/klines?symbol=${pair}&interval=4h&limit=200`)),
+    safe(j(`https://api.binance.com/api/v3/ticker/24hr?symbol=${pair}`)),
+  ]);
+  if(!k1.ok||!t24.ok)throw new Error(`No encuentro el par ${pair} en Binance. Comprueba el símbolo (p. ej. BTC, ETHUSDT).`);
+  setStep(2,'done');setStep(3,'on');
+  const [prem,oi,oiH,bybit,fng,cg]=await Promise.all([
+    safe(j(`https://fapi.binance.com/fapi/v1/premiumIndex?symbol=${pair}`)),
+    safe(j(`https://fapi.binance.com/fapi/v1/openInterest?symbol=${pair}`)),
+    safe(j(`https://fapi.binance.com/futures/data/openInterestHist?symbol=${pair}&period=1h&limit=13`)),
+    safe(j(`https://api.bybit.com/v5/market/tickers?category=linear&symbol=${pair}`)),
+    safe(j(`https://api.alternative.me/fng/?limit=1`)),
+    safe(j(`https://api.coingecko.com/api/v3/search?query=${base}`).then(async s=>{
+      const coin=(s.coins||[]).find(c=>c.symbol?.toUpperCase()===base);
+      if(!coin)throw new Error('sin match');
+      const p=await j(`https://api.coingecko.com/api/v3/simple/price?ids=${coin.id}&vs_currencies=usd&include_24hr_change=true`);
+      return{id:coin.id,...p[coin.id]};
+    })),
+  ]);
+  setStep(3,'done');setStep(4,'on');
 
-    // ==================== LLAMADA A GEMINI ====================
-    async function analizarConGemini(isResiduo = true) {
-      const apiKey = document.getElementById('apiKey').value.trim();
-      if (!apiKey) {
-        showToast('Ingresa tu clave API de Gemini', 'err');
-        return;
+  const advertencias=[];
+  const pBin=+t24.v.lastPrice;
+  const pBybit=bybit.ok?+(bybit.v.result?.list?.[0]?.lastPrice||NaN):NaN;
+  const pCg=cg.ok?+cg.v.usd:NaN;
+  const prices=[['Binance Spot',pBin],['Bybit Perp',pBybit],['CoinGecko',pCg]].filter(([,v])=>!isNaN(v));
+  let divPct=0;
+  if(prices.length>=2){const vs=prices.map(p=>p[1]);divPct=+(((Math.max(...vs)-Math.min(...vs))/Math.min(...vs))*100).toFixed(3);}
+  if(prices.length<2)advertencias.push('Solo una fuente de precio disponible: contraste limitado.');
+  if(divPct>1)advertencias.push(`Divergencia de precio entre fuentes del ${divPct}% — datos posiblemente desincronizados.`);
+  if(!prem.ok)advertencias.push('Sin datos de futuros de Binance para este par (funding/OI no disponibles).');
+  if(!fng.ok)advertencias.push('Índice Fear & Greed no disponible.');
+
+  let oiCambio=null;
+  if(oiH.ok&&Array.isArray(oiH.v)&&oiH.v.length>=2){
+    const first=+oiH.v[0].sumOpenInterest,last=+oiH.v[oiH.v.length-1].sumOpenInterest;
+    oiCambio=+(((last-first)/first)*100).toFixed(2);
+  }
+  const data={
+    par:pair,
+    timestamp_utc:new Date().toISOString(),
+    precio:{
+      binance_spot:pBin,
+      bybit_perp:isNaN(pBybit)?null:pBybit,
+      coingecko_usd:isNaN(pCg)?null:pCg,
+      divergencia_max_pct:divPct,
+      variacion_24h_pct:+(+t24.v.priceChangePercent).toFixed(2),
+      volumen_24h_usdt:Math.round(+t24.v.quoteVolume),
+    },
+    derivados:!prem.ok?null:{
+      mark_price:+prem.v.markPrice,
+      funding_rate_pct:+((+prem.v.lastFundingRate)*100).toFixed(4),
+      funding_interpretacion:(+prem.v.lastFundingRate)>0?'longs pagan a shorts (sesgo comprador apalancado)':'shorts pagan a longs (sesgo vendedor apalancado)',
+      open_interest:oi.ok?+(+oi.v.openInterest).toFixed(0):null,
+      open_interest_cambio_12h_pct:oiCambio,
+    },
+    sentimiento:fng.ok?{fear_greed:+fng.v.data[0].value,clasificacion:fng.v.data[0].value_classification}:null,
+    tecnico:{
+      '15m':k15.ok?tfAnalysis(k15.v):null,
+      '1h':tfAnalysis(k1.v),
+      '4h':k4.ok?tfAnalysis(k4.v):null,
+    },
+    advertencias,
+    fuentes_consultadas:[
+      {nombre:'Binance Spot API',url:'https://api.binance.com',datos:'precio, velas 15m/1h/4h, volumen 24h'},
+      prem.ok?{nombre:'Binance Futures API',url:'https://fapi.binance.com',datos:'mark price, funding rate, open interest'}:null,
+      !isNaN(pBybit)?{nombre:'Bybit API',url:'https://api.bybit.com',datos:'precio perp (contraste)'}:null,
+      !isNaN(pCg)?{nombre:'CoinGecko',url:'https://www.coingecko.com',datos:'precio USD (contraste)'}:null,
+      fng.ok?{nombre:'Alternative.me',url:'https://alternative.me/crypto/fear-and-greed-index/',datos:'índice Fear & Greed'}:null,
+    ].filter(Boolean),
+  };
+  setStep(4,'done');
+  return data;
+}
+
+/* ---------- flujo principal ---------- */
+async function analyze(extraAnswers){
+  apiKey=$('apiKey').value.trim()||localStorage.getItem('pv_key')||'';
+  if(!apiKey){$('cfg').classList.add('open');$('out').innerHTML=`<div class="err">Necesitas una clave API de Gemini (gratuita). Ábrela en <a href="https://aistudio.google.com/apikey" target="_blank" style="color:inherit">aistudio.google.com/apikey</a>, pégala arriba y pulsa Guardar.</div>`;return;}
+  const btn=$('go');btn.disabled=true;btn.textContent='Analizando…';
+  $('out').innerHTML='';stepsReset();
+  const t0=Date.now();
+  try{
+    /* 1 · visión */
+    let symbolInput=$('symbol').value.trim();
+    if(imgB64&&!visionCache){
+      setStep(1,'on');
+      visionCache=await gemini([{text:VISION_PROMPT},{inlineData:{mimeType:imgB64.split(';')[0].split(':')[1]||'image/png',data:imgB64.split(',')[1]}}],1024);
+      setStep(1,'done');
+      if(!symbolInput){
+        const det=visionCache.par||visionCache.simbolo;
+        if(det&&(visionCache.confianza??0)>=0.7){symbolInput=det;$('symbol').value=det;}
+        else{
+          finishSteps();
+          $('out').innerHTML=`<div class="card"><div class="sec-title">La IA necesita tu ayuda (mejor preguntar que inventar)</div>
+            <p style="font-size:14px">${esc(visionCache.pregunta||'No he podido leer el símbolo en la captura con suficiente certeza.')}</p>
+            <p class="src" style="margin-top:6px">Escribe el símbolo en el campo de arriba y vuelve a pulsar «Analizar mercado».</p></div>`;
+          return;
+        }
       }
-
-      const prefix = isResiduo ? 'res' : 'etq';
-      const lote = document.getElementById(prefix + '-lote').value;
-      const desc = document.getElementById(prefix + '-desc').value;
-
-      const resultsDiv = document.getElementById(prefix + '-results');
-      resultsDiv.innerHTML = `<div class="loading">Analizando con IA...</div>`;
-
-      try {
-        const payload = {
-          contents: [{
-            parts: [
-              { text: SYSTEM_PROMPT + (isResiduo ? "\n\nClasifica este residuo:" : "\n\nVerifica esta etiqueta CLP:") },
-              lote || desc ? { text: `Lote: ${lote}\nDescripción: ${desc}` } : {},
-              currentImageBase64 ? {
-                inlineData: { mimeType: "image/jpeg", data: currentImageBase64.split(',')[1] }
-              } : {}
-            ].filter(Boolean)
-          }]
-        };
-
-        const resp = await fetch(GEMINI_URL(apiKey), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-
-        const data = await resp.json();
-        const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-        
-        let jsonText = text.replace(/```json|```/g, '').trim();
-        const result = JSON.parse(jsonText);
-
-        renderResult(result, isResiduo, resultsDiv);
-
-        // Guardar en historial
-        historial.unshift({
-          fecha: new Date().toLocaleString('es-ES'),
-          tipo: isResiduo ? 'Residuo' : 'Etiqueta',
-          data: result
-        });
-        saveLocal('quimico_historial', historial);
-
-      } catch (err) {
-        console.error(err);
-        resultsDiv.innerHTML = `<p style="color:var(--danger)">Error: ${err.message}</p>`;
-        showToast('Error al procesar la solicitud', 'err');
-      }
+    }else{setStep(1,imgB64?'done':null);if(!imgB64)$('st1').innerHTML='<span class="dot"></span>Sin imagen: modo rápido por símbolo';}
+    if(!symbolInput){
+      finishSteps();
+      $('out').innerHTML=`<div class="err">Sube un pantallazo o escribe un símbolo (p. ej. BTC).</div>`;return;
     }
+    /* 2-4 · datos reales + indicadores */
+    const pair=normSymbol(symbolInput);
+    lastData=await fetchMarket(pair);
+    /* 5 · veredicto */
+    setStep(5,'on');
+    const parts=[{text:ANALYSIS_PROMPT},
+      {text:'\nDATOS_VERIFICADOS (obtenidos hace segundos):\n'+JSON.stringify(lastData)},
+      visionCache?{text:'\nLECTURA_DEL_PANTALLAZO (solo contexto visual, sus precios pueden estar desfasados; prioriza siempre DATOS_VERIFICADOS):\n'+JSON.stringify(visionCache)}:null,
+      extraAnswers?{text:'\nRESPUESTAS_DEL_USUARIO a tus preguntas anteriores:\n'+extraAnswers}:null,
+    ].filter(Boolean);
+    const res=await gemini(parts,8192);
+    setStep(5,'done');
+    render(res,lastData,Date.now()-t0);
+  }catch(e){
+    finishSteps();
+    $('out').innerHTML=`<div class="err">⚠️ ${esc(e.message)}</div><div class="src">Nada de datos inventados: si una fuente falla, se muestra el error en lugar de rellenar con suposiciones.</div>`;
+  }finally{btn.disabled=false;btn.textContent='Analizar mercado';}
+}
+function finishSteps(){document.querySelectorAll('.step.on').forEach(s=>s.classList.remove('on'));}
 
-    function renderResult(result, isResiduo, container) {
-      // Renderizado bonito del JSON (puedes expandirlo)
-      container.innerHTML = `
-        <div class="result-card">
-          <h3>${result.producto?.nombre_comercial || 'Resultado'}</h3>
-          <pre style="background:#f8f9fa;padding:12px;border-radius:8px;font-size:13px;">${JSON.stringify(result, null, 2)}</pre>
-        </div>`;
-    }
+/* ---------- render ---------- */
+function biasBadge(b){const s=String(b||'').toUpperCase();
+  if(s.includes('ALCI'))return'b-green';if(s.includes('BAJ'))return'b-red';return'b-yellow';}
+function render(r,d,ms){
+  if(r.estado==='NEED_INFO'){
+    $('out').innerHTML=`<div class="card"><div class="sec-title">La IA necesita más información antes de opinar</div>
+      <ul class="reasons">${(r.preguntas||[]).map(q=>`<li>${esc(q)}</li>`).join('')}</ul>
+      <label style="margin-top:10px">Tu respuesta</label><textarea id="answers" rows="2"></textarea>
+      <div style="margin-top:8px"><button class="btn-primary" onclick="analyze(document.getElementById('answers').value)">Responder y continuar</button></div></div>`;
+    return;
+  }
+  const op=r.operacion||{},dir=String(op.veredicto||'ESPERAR').toUpperCase();
+  const dirCls=dir==='LONG'?'long':dir==='SHORT'?'short':'wait';
+  const dirIcon=dir==='LONG'?'📈':dir==='SHORT'?'📉':'⏸';
+  const conf=v=>v!=null?Math.round(v*100)+'%':'—';
+  const pr=d.precio;
+  const proj=r.proyeccion||{};
+  const hz=(key,label)=>{const p=proj[key]||{};return`<div class="hz"><div class="t">${label}</div><div class="v"><span class="badge ${biasBadge(p.sesgo)}">${esc(p.sesgo||'—')}</span></div><div class="c">conf. ${conf(p.confianza)}</div><div class="c" style="margin-top:3px">${esc(p.razon||'')}</div></div>`;};
+  const t=r.tendencia_actual||{};
+  const rr=(op.zona_entrada&&op.stop_loss&&op.tp1)?(Math.abs(op.tp1-op.zona_entrada[0])/Math.abs(op.zona_entrada[0]-op.stop_loss)).toFixed(1):null;
 
-    // ==================== BOTONES PRINCIPALES ====================
-    function clasificarResiduo() {
-      analizarConGemini(true);
-    }
+  $('out').innerHTML=`
+  ${(r.avisos||[]).concat(d.advertencias.filter(a=>!(r.avisos||[]).includes(a))).map(a=>`<div class="warn">⚠️ ${esc(a)}</div>`).join('')}
 
-    function verificarEtiqueta() {
-      analizarConGemini(false);
-    }
+  <div class="card verdict">
+    <div class="dir ${dirCls}">${dirIcon} ${esc(dir)}</div>
+    <div class="conf">${esc(d.par)} · confianza ${conf(op.confianza)} · precio ${fmt(pr.binance_spot)} $ (${pr.variacion_24h_pct>0?'+':''}${pr.variacion_24h_pct}% 24h)</div>
+    ${dir!=='ESPERAR'?`<div class="levels">
+      <div class="lvl"><span>Entrada</span><b>${op.zona_entrada?fmt(op.zona_entrada[0])+(op.zona_entrada[1]?' – '+fmt(op.zona_entrada[1]):''):'—'}</b></div>
+      <div class="lvl"><span>Stop loss</span><b style="color:var(--red)">${fmt(op.stop_loss)}</b></div>
+      <div class="lvl"><span>TP1</span><b style="color:var(--green)">${fmt(op.tp1)}</b></div>
+      <div class="lvl"><span>TP2</span><b style="color:var(--green)">${fmt(op.tp2)}</b></div>
+      ${rr?`<div class="lvl"><span>R : R (TP1)</span><b>1 : ${rr}</b></div>`:''}
+    </div>`:''}
+    ${op.invalidacion?`<p class="src" style="margin-top:10px">❌ Invalidación: ${esc(op.invalidacion)}</p>`:''}
+    ${op.gestion?`<p class="src" style="margin-top:4px">🛡️ ${esc(op.gestion)}</p>`:''}
+  </div>
 
-    function saveApiKey() {
-      const key = document.getElementById('apiKey').value.trim();
-      if (key) {
-        localStorage.setItem('gemini_api_key', key);
-        document.getElementById('keyStatus').innerHTML = '✅ Clave guardada correctamente';
-        showToast('Clave API guardada');
-      }
-    }
+  <div class="card">
+    <div class="sec-title">Tendencia ahora <span class="badge ${biasBadge(t.direccion)}" style="margin-left:6px">${esc(t.direccion||'—')} ${esc(t.fuerza||'')}</span></div>
+    <p style="font-size:13.5px">${esc(t.resumen||'')}</p>
+    <div class="sec-title" style="margin-top:14px">Proyección (escenarios probabilísticos, no certezas)</div>
+    <div class="horiz">
+      <div class="hz"><div class="t">Ahora</div><div class="v"><span class="badge ${biasBadge(t.direccion)}">${esc(t.direccion||'—')}</span></div><div class="c">${esc(t.fuerza||'')}</div></div>
+      ${hz('h4','+4 h')}${hz('h8','+8 h')}${hz('h12','+12 h')}
+    </div>
+  </div>
 
-    function clearHistorial() {
-      if (confirm('¿Eliminar todo el historial?')) {
-        historial = [];
-        saveLocal('quimico_historial', []);
-        renderHistorial();
-      }
-    }
+  <div class="card">
+    <div class="sec-title">Por qué</div>
+    <ul class="reasons">${(r.razones||[]).map(x=>`<li>${esc(x)}</li>`).join('')}</ul>
+  </div>
 
-    function renderHistorial() {
-      const list = document.getElementById('historial-list');
-      list.innerHTML = historial.map((item, i) => `
-        <div class="card">
-          <small>${item.fecha} - ${item.tipo}</small>
-          <p><strong>${item.data.producto?.nombre_comercial || ''}</strong></p>
-        </div>
-      `).join('');
-    }
+  <div class="card">
+    <details>
+      <summary>📊 Datos verificados usados (${new Date(d.timestamp_utc).toLocaleTimeString('es-ES')} — toca para ver)</summary>
+      <table>
+        <tr><td>Precio Binance Spot</td><td>${fmt(pr.binance_spot)} $</td></tr>
+        ${pr.bybit_perp?`<tr><td>Precio Bybit Perp (contraste)</td><td>${fmt(pr.bybit_perp)} $</td></tr>`:''}
+        ${pr.coingecko_usd?`<tr><td>Precio CoinGecko (contraste)</td><td>${fmt(pr.coingecko_usd)} $</td></tr>`:''}
+        <tr><td>Divergencia máx. entre fuentes</td><td>${pr.divergencia_max_pct}%</td></tr>
+        <tr><td>Volumen 24 h</td><td>${fmt(pr.volumen_24h_usdt)} $</td></tr>
+        ${d.derivados?`
+        <tr><td>Funding rate</td><td>${d.derivados.funding_rate_pct}%</td></tr>
+        <tr><td>Open interest</td><td>${fmt(d.derivados.open_interest)}</td></tr>
+        ${d.derivados.open_interest_cambio_12h_pct!=null?`<tr><td>Δ Open interest 12 h</td><td>${d.derivados.open_interest_cambio_12h_pct}%</td></tr>`:''}`:''}
+        ${d.sentimiento?`<tr><td>Fear &amp; Greed</td><td>${d.sentimiento.fear_greed} (${esc(d.sentimiento.clasificacion)})</td></tr>`:''}
+        ${['15m','1h','4h'].filter(tf=>d.tecnico[tf]).map(tf=>{const x=d.tecnico[tf];return`
+        <tr><td>RSI(14) ${tf} / tendencia local</td><td>${x.rsi14??'—'} · ${esc(x.tendencia_local)}</td></tr>
+        <tr><td>Soportes ${tf} (pivotes)</td><td>${x.soportes.map(fmt).join(' · ')||'—'}</td></tr>
+        <tr><td>Resistencias ${tf} (pivotes)</td><td>${x.resistencias.map(fmt).join(' · ')||'—'}</td></tr>`;}).join('')}
+      </table>
+    </details>
+    <div class="sec-title" style="margin-top:12px">Fuentes citadas</div>
+    <div class="src">
+      ${d.fuentes_consultadas.map(f=>`• <a href="${esc(f.url)}" target="_blank">${esc(f.nombre)}</a> — ${esc(f.datos)}<br>`).join('')}
+      ${(r.fuentes||[]).length?'<br>Atribución por dato: '+r.fuentes.map(f=>`${esc(f.dato)} → ${esc(f.fuente)}`).join(' · '):''}
+    </div>
+    <div class="ts">Datos de ${new Date(d.timestamp_utc).toLocaleString('es-ES')} · análisis completado en ${(ms/1000).toFixed(1)} s</div>
+    <div style="margin-top:10px"><button class="btn-ghost btn-sm" onclick="analyze()">🔄 Actualizar con datos frescos</button></div>
+  </div>`;
+}
 
-    // ==================== INICIALIZACIÓN ====================
-    function init() {
-      // Cargar clave API
-      const savedKey = localStorage.getItem('gemini_api_key');
-      if (savedKey) {
-        document.getElementById('apiKey').value = savedKey;
-        document.getElementById('keyStatus').innerHTML = '✅ Clave guardada';
-      }
-
-      historial = loadLocal('quimico_historial');
-      renderHistorial();
-
-      // Eventos de archivos
-      ['res', 'etq'].forEach(prefix => {
-        const camera = document.getElementById(prefix + '-camera');
-        const gallery = document.getElementById(prefix + '-gallery');
-        
-        if (camera) camera.addEventListener('change', () => handleImage(camera, prefix));
-        if (gallery) gallery.addEventListener('change', () => handleImage(gallery, prefix));
-      });
-
-      // Modo por defecto
-      switchTab('residuos');
-      setResMode('foto');
-    }
-
-    window.onload = init;
-  </script>
+/* ---------- init ---------- */
+(function(){
+  const k=localStorage.getItem('pv_key');if(k){$('apiKey').value=k;apiKey=k;$('keyStatus').textContent='✅ guardada';}else{$('cfg').classList.add('open');}
+  const m=localStorage.getItem('pv_model');if(m)$('model').value=m;
+  $('symbol').addEventListener('keydown',e=>{if(e.key==='Enter')analyze();});
+})();
+</script>
 </body>
 </html>
