@@ -134,8 +134,8 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         import static_ffmpeg
-        static_ffmpeg.add_paths()
-    except ImportError:
+        static_ffmpeg.add_paths(weak=True)
+    except Exception:
         pass
 
     if not os.path.exists(args.archivo):
