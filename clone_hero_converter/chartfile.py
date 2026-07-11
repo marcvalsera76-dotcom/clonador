@@ -96,7 +96,7 @@ def generar_song_ini(titulo: str, artista: str, album: str, generador: str,
         "keys": "diff_keys",
     }
     for inst, clave in clave_diff.items():
-        lineas.append(f"{clave} = {3 if inst in instrumentos else -1}")
+        lineas.append(f"{clave} = {6 if inst in instrumentos else -1}")
     lineas.append("icon = ")
     lineas.append("loading_phrase = Generado automáticamente a partir del audio")
     return "\n".join(lineas) + "\n"

@@ -21,6 +21,7 @@ from .chartfile import NOMBRE_INSTRUMENTO, generar_chart, generar_song_ini
 from .charting import DIFICULTADES, generar_instrumento
 
 INSTRUMENTOS = ["guitar", "bass", "drums", "keys"]
+INSTRUMENTOS_POR_DEFECTO = ["guitar", "bass", "keys"]  # sin batería por defecto
 GENERADOR = "Clone Hero Converter"
 
 
@@ -41,15 +42,16 @@ def preguntar_instrumentos() -> list[str]:
     print("\n🎸 ¿Qué instrumentos quieres que sean jugables?")
     for i, inst in enumerate(INSTRUMENTOS, 1):
         print(f"  {i}. {NOMBRE_INSTRUMENTO[inst]}")
-    print("Escribe los números separados por comas (Enter = todos):")
+    print("Escribe los números separados por comas "
+          "(Enter = guitarra, bajo y teclado, sin batería):")
     respuesta = input("> ").strip()
     if not respuesta:
-        return list(INSTRUMENTOS)
+        return list(INSTRUMENTOS_POR_DEFECTO)
     elegidos = []
     for token in re.split(r"[,\s]+", respuesta):
         if token.isdigit() and 1 <= int(token) <= len(INSTRUMENTOS):
             elegidos.append(INSTRUMENTOS[int(token) - 1])
-    return elegidos or list(INSTRUMENTOS)
+    return elegidos or list(INSTRUMENTOS_POR_DEFECTO)
 
 
 def preguntar_dificultades() -> list[str]:
@@ -169,7 +171,7 @@ def main(argv: list[str] | None = None) -> int:
     elif interactivo:
         instrumentos = preguntar_instrumentos()
     else:
-        instrumentos = list(INSTRUMENTOS)
+        instrumentos = list(INSTRUMENTOS_POR_DEFECTO)
 
     if args.dificultades:
         mapa = {d.lower(): d for d in DIFICULTADES}

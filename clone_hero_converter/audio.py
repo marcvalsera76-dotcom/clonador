@@ -86,11 +86,20 @@ class AnalisisCancion:
     extra: dict = field(default_factory=dict)
 
 
-def _onsets_con_fuerza(y: np.ndarray, sr: int) -> tuple[np.ndarray, np.ndarray]:
-    """Detecta onsets y devuelve (tiempos, fuerza normalizada 0..1)."""
+def _onsets_con_fuerza(y: np.ndarray, sr: int, delta: float = 0.035,
+                       wait: int = 1) -> tuple[np.ndarray, np.ndarray]:
+    """Detecta onsets y devuelve (tiempos, fuerza normalizada 0..1).
+
+    Los valores por defecto de librosa (delta=0.07) son demasiado
+    conservadores para instrumentos con pasajes rápidos (p.ej. rasgueado de
+    guitarra): apenas detectan ~2 notas/s. Bajar delta y wait recupera notas
+    reales que de otro modo se pierden; el filtrado por dificultad
+    (sep_min/umbral en charting.py) ya se encarga de curar la densidad final.
+    """
     envolvente = librosa.onset.onset_strength(y=y, sr=sr)
     frames = librosa.onset.onset_detect(
-        onset_envelope=envolvente, sr=sr, backtrack=False, units="frames"
+        onset_envelope=envolvente, sr=sr, backtrack=False, units="frames",
+        delta=delta, wait=wait,
     )
     if len(frames) == 0:
         return np.array([]), np.array([])

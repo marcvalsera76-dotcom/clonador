@@ -70,5 +70,5 @@ def test_formato_chart():
 def test_song_ini():
     ini = generar_song_ini("T", "A", "", "Test", 65.4, ["guitar", "drums"])
     assert "song_length = 65400" in ini
-    assert "diff_guitar = 3" in ini
+    assert "diff_guitar = 6" in ini
     assert "diff_bass = -1" in ini
