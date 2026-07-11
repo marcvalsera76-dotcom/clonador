@@ -116,6 +116,38 @@ def _croma_en_onsets(y: np.ndarray, sr: int, tiempos: np.ndarray) -> np.ndarray:
     return np.array(tonos, dtype=int)
 
 
+def _pitch_en_onsets(y: np.ndarray, sr: int, tiempos: np.ndarray,
+                     fmin: float = 77.0, fmax: float = 1300.0) -> np.ndarray:
+    """Tono (0-11) siguiendo el pitch fundamental (pyin) en cada onset.
+
+    Más robusto que el croma de banda ancha para una línea melódica
+    monofónica (p.ej. un riff de guitarra), porque sigue una única
+    frecuencia dominante en vez de sumar energía de todas las notas
+    presentes (lo que arrastra armónicos de voz u otros instrumentos).
+    Si el frame no tiene un pitch fiable (silencio, ruido), recurre al
+    croma de banda ancha como respaldo.
+    """
+    if len(tiempos) == 0:
+        return np.array([], dtype=int)
+
+    f0, voiced_flag, _ = librosa.pyin(y, fmin=fmin, fmax=fmax, sr=sr)
+    croma_respaldo = _croma_en_onsets(y, sr, tiempos)
+
+    frames = np.clip(librosa.time_to_frames(tiempos, sr=sr), 0, len(f0) - 1)
+    tonos = []
+    for i, f in enumerate(frames):
+        ventana = slice(f, min(f + 3, len(f0)))
+        f0_ventana = f0[ventana]
+        voz_ventana = voiced_flag[ventana]
+        validos = f0_ventana[voz_ventana & ~np.isnan(f0_ventana)]
+        if len(validos) > 0:
+            midi = librosa.hz_to_midi(np.median(validos))
+            tonos.append(int(round(midi)) % 12)
+        else:
+            tonos.append(int(croma_respaldo[i]))
+    return np.array(tonos, dtype=int)
+
+
 def _filtrar_banda(y: np.ndarray, sr: int, f_max: float | None = None,
                    f_min: float | None = None) -> np.ndarray:
     """Filtro de banda sencillo vía STFT (suficiente para detección de onsets)."""
@@ -195,12 +227,17 @@ def analizar(ruta: str, verbose: bool = True) -> AnalisisCancion:
 
         if verbose:
             print("🎸 Separando componentes armónico y percusivo...")
-        y_harm, y_perc = librosa.effects.hpss(y)
+        # Margen alto para una separación más agresiva: reduce que platos/palmas
+        # se cuelen en el componente armónico y viceversa.
+        y_harm, y_perc = librosa.effects.hpss(y, margin=(1.0, 5.0))
 
         if verbose:
             print("🎼 Detectando notas de melodía (guitarra/teclado)...")
-        onsets_mel, fuerza_mel = _onsets_con_fuerza(y_harm, sr)
-        tono_mel = _croma_en_onsets(y_harm, sr, onsets_mel)
+        # Banda típica de guitarra (E2-E6 aprox.): reduce la interferencia de
+        # graves de bajo/voz muy grave y de sibilancias/armónicos muy agudos.
+        y_guitarra = _filtrar_banda(y_harm, sr, f_min=80.0, f_max=1300.0)
+        onsets_mel, fuerza_mel = _onsets_con_fuerza(y_guitarra, sr)
+        tono_mel = _pitch_en_onsets(y_guitarra, sr, onsets_mel)
 
         if verbose:
             print("🎻 Detectando línea de bajo...")
