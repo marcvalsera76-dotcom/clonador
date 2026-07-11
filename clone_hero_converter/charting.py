@@ -23,10 +23,10 @@ DIFICULTADES = ["Easy", "Medium", "Hard", "Expert"]
 #   umbral: fuerza mínima del onset para conservar la nota
 #   acordes: probabilidad-fuerza a partir de la cual una nota se vuelve acorde
 PARAMETROS = {
-    "Expert": dict(sep_min=0.085, carriles=5, umbral=0.05, acordes=0.80),
-    "Hard":   dict(sep_min=0.150, carriles=4, umbral=0.15, acordes=0.90),
-    "Medium": dict(sep_min=0.280, carriles=3, umbral=0.28, acordes=1.10),
-    "Easy":   dict(sep_min=0.500, carriles=3, umbral=0.40, acordes=1.10),
+    "Expert": dict(sep_min=0.085, carriles=5, umbral=0.10, acordes=0.80),
+    "Hard":   dict(sep_min=0.150, carriles=4, umbral=0.20, acordes=0.90),
+    "Medium": dict(sep_min=0.280, carriles=3, umbral=0.32, acordes=1.10),
+    "Easy":   dict(sep_min=0.500, carriles=3, umbral=0.45, acordes=1.10),
 }
 
 SUSTAIN_MINIMO = 0.45   # hueco (s) a partir del cual la nota anterior se alarga
