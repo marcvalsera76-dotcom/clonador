@@ -44,6 +44,87 @@ def segundos_a_ticks(t: float, bpm: float) -> int:
     return int(round(t * (bpm / 60.0) * RESOLUCION))
 
 
+def _mejor_snap(tick: float, resolucion: int = RESOLUCION) -> int:
+    """Ajusta un tick al punto más cercano de dos rejillas finas: 32ª nota
+    recta (resolucion/8) o 32ª de tresillo (resolucion/12). Evita dejar
+    valores de tick "crudos" (arbitrarios) como hace la conversión ingenua
+    segundo->tick; los charts hechos a mano (referencia: Mayonaise, Treasure,
+    Cantina Band, Shape of my Heart) caen siempre en una de estas dos
+    subdivisiones, nunca en ticks sueltos."""
+    paso_recta = max(1, resolucion // 8)
+    paso_tresillo = max(1, resolucion // 12)
+    cand_recta = round(tick / paso_recta) * paso_recta
+    cand_tresillo = round(tick / paso_tresillo) * paso_tresillo
+    if abs(cand_recta - tick) <= abs(cand_tresillo - tick):
+        return int(cand_recta)
+    return int(cand_tresillo)
+
+
+@dataclass
+class MapaTempo:
+    """Convierte tiempo real (segundos) a ticks usando tempo VARIABLE.
+
+    En vez de asumir un único BPM fijo para toda la canción (lo que hacía
+    que las notas se desincronizaran progresivamente en cuanto el tempo
+    real de la grabación fluctuaba, aunque fuese ligeramente), cada
+    intervalo entre dos beats detectados consecutivos se trata como su
+    propio tramo de BPM instantáneo. Es exactamente la técnica que usan
+    los charters humanos (ver [SyncTrack] de cualquier referencia real:
+    un evento `B` nuevo cada 1-4 tiempos, nunca uno solo para toda la
+    canción).
+    """
+
+    tiempos_beat: np.ndarray
+    resolucion: int = RESOLUCION
+
+    def __post_init__(self) -> None:
+        if len(self.tiempos_beat) < 2:
+            raise ValueError("Se necesitan al menos 2 beats para un mapa de tempo")
+        self._ticks_beat = np.arange(len(self.tiempos_beat)) * self.resolucion
+
+    def sync_track(self) -> list[tuple[int, float]]:
+        """Lista (tick, bpm) — un evento B por cada tramo entre beats,
+        lista para escribirse tal cual en [SyncTrack]."""
+        eventos = []
+        for i in range(len(self.tiempos_beat) - 1):
+            dt = self.tiempos_beat[i + 1] - self.tiempos_beat[i]
+            bpm = 60.0 / dt if dt > 1e-6 else 120.0
+            eventos.append((int(self._ticks_beat[i]), bpm))
+        return eventos
+
+    def a_ticks(self, t: float) -> int:
+        """Tiempo real (s) -> tick, interpolando dentro del tramo de beat
+        correspondiente y ajustando a la subdivisión más cercana."""
+        tb = self.tiempos_beat
+        if t <= tb[0]:
+            i = 0
+        elif t >= tb[-1]:
+            i = len(tb) - 2
+        else:
+            i = int(np.searchsorted(tb, t, side="right") - 1)
+            i = max(0, min(i, len(tb) - 2))
+        dt = tb[i + 1] - tb[i]
+        frac = (t - tb[i]) / dt if dt > 1e-6 else 0.0
+        tick_crudo = self._ticks_beat[i] + frac * self.resolucion
+        return _mejor_snap(tick_crudo, self.resolucion)
+
+
+def construir_mapa_tempo(tiempos_beat: np.ndarray, bpm_global: float,
+                         resolucion: int = RESOLUCION) -> MapaTempo:
+    """Construye el MapaTempo a partir de los beats detectados por librosa.
+
+    Si por lo que sea hay menos de 2 beats (canción rarísima o detección
+    fallida), recurre a un mapa sintético de tempo fijo con `bpm_global`
+    para no romper la conversión.
+    """
+    if tiempos_beat is not None and len(tiempos_beat) >= 2:
+        return MapaTempo(np.asarray(tiempos_beat, dtype=float), resolucion)
+    # Fallback: tempo fijo sintético (mismo comportamiento que antes)
+    duracion_beat = 60.0 / max(bpm_global, 1.0)
+    beats_sinteticos = np.arange(0, 600.0, duracion_beat)  # cubre hasta 10 min
+    return MapaTempo(beats_sinteticos, resolucion)
+
+
 def _asignar_carriles(tonos: np.ndarray, n_carriles: int) -> np.ndarray:
     """Reparte los cromas (0-11) entre los carriles disponibles.
 
@@ -104,7 +185,7 @@ def _evitar_repeticion(carriles: np.ndarray, n_carriles: int) -> np.ndarray:
 
 
 def generar_pista_melodica(onsets: np.ndarray, fuerzas: np.ndarray,
-                           tonos: np.ndarray, bpm: float,
+                           tonos: np.ndarray, mapa: MapaTempo,
                            dificultad: str) -> list[Nota]:
     """Genera una pista de guitarra/bajo/teclado para una dificultad."""
     p = PARAMETROS[dificultad]
@@ -123,18 +204,24 @@ def generar_pista_melodica(onsets: np.ndarray, fuerzas: np.ndarray,
             vecino = lanes[0] + (1 if lanes[0] < p["carriles"] - 1 else -1)
             lanes.append(vecino)
 
+        tick_inicio = mapa.a_ticks(t[i])
         longitud = 0
         hueco = (t[i + 1] - t[i]) if i + 1 < len(t) else 0.0
         if hueco > SUSTAIN_MINIMO:
-            longitud = segundos_a_ticks(hueco - SUSTAIN_MARGEN, bpm)
+            # Duración en ticks = diferencia entre los ticks de inicio y fin
+            # convertidos con el tempo local de cada instante, no una
+            # multiplicación por un BPM fijo (eso desincroniza el final del
+            # sustain si el tempo real varía dentro del hueco).
+            tick_fin = mapa.a_ticks(t[i] + hueco - SUSTAIN_MARGEN)
+            longitud = max(0, tick_fin - tick_inicio)
 
-        notas.append(Nota(tick=segundos_a_ticks(t[i], bpm),
+        notas.append(Nota(tick=tick_inicio,
                           carriles=sorted(set(lanes)), longitud=longitud))
     return notas
 
 
 def generar_pista_bateria(onsets: np.ndarray, fuerzas: np.ndarray,
-                          bandas: np.ndarray, bpm: float,
+                          bandas: np.ndarray, mapa: MapaTempo,
                           dificultad: str) -> list[Nota]:
     """Genera la pista de batería.
 
@@ -156,31 +243,39 @@ def generar_pista_bateria(onsets: np.ndarray, fuerzas: np.ndarray,
             lanes = [1]
         else:                                   # aguda → charles/platos
             lanes = [2] if dificultad != "Easy" else [1]
-        notas.append(Nota(tick=segundos_a_ticks(t[i], bpm),
+        notas.append(Nota(tick=mapa.a_ticks(t[i]),
                           carriles=sorted(set(lanes))))
     return notas
 
 
 def generar_instrumento(analisis: AnalisisCancion, instrumento: str,
-                        dificultad: str) -> list[Nota]:
-    """Genera la lista de notas de un instrumento y dificultad concretos."""
-    bpm = analisis.bpm
+                        dificultad: str, mapa: MapaTempo | None = None) -> list[Nota]:
+    """Genera la lista de notas de un instrumento y dificultad concretos.
+
+    `mapa` es opcional para no romper llamadas existentes: si no se pasa,
+    se construye aquí mismo a partir de `analisis.tiempos_beat` (con
+    fallback a tempo fijo si la detección de beats no dio suficientes).
+    Para convertir varios instrumentos/dificultades de la misma canción es
+    más eficiente construirlo una vez fuera y pasarlo.
+    """
+    if mapa is None:
+        mapa = construir_mapa_tempo(analisis.tiempos_beat, analisis.bpm)
     if instrumento == "guitar":
         return generar_pista_melodica(analisis.onsets_melodia,
                                       analisis.fuerza_melodia,
-                                      analisis.tono_melodia, bpm, dificultad)
+                                      analisis.tono_melodia, mapa, dificultad)
     if instrumento == "bass":
         return generar_pista_melodica(analisis.onsets_bajo,
                                       analisis.fuerza_bajo,
-                                      analisis.tono_bajo, bpm, dificultad)
+                                      analisis.tono_bajo, mapa, dificultad)
     if instrumento == "keys":
         # El teclado reutiliza la parte armónica con reducción algo mayor
         notas = generar_pista_melodica(analisis.onsets_melodia,
                                        analisis.fuerza_melodia,
-                                       analisis.tono_melodia, bpm, dificultad)
+                                       analisis.tono_melodia, mapa, dificultad)
         return notas
     if instrumento == "drums":
         return generar_pista_bateria(analisis.onsets_bateria,
                                      analisis.fuerza_bateria,
-                                     analisis.banda_bateria, bpm, dificultad)
+                                     analisis.banda_bateria, mapa, dificultad)
     raise ValueError(f"Instrumento desconocido: {instrumento}")
