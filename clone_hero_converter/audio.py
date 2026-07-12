@@ -114,7 +114,7 @@ def _croma_en_onsets(y: np.ndarray, sr: int, tiempos: np.ndarray) -> np.ndarray:
     """Croma dominante (0-11) en cada instante de onset."""
     if len(tiempos) == 0:
         return np.array([], dtype=int)
-    croma = librosa.feature.chroma_cqt(y=y, sr=sr)
+    croma = librosa.feature.chroma_stft(y=y, sr=sr)
     frames = librosa.time_to_frames(tiempos, sr=sr)
     frames = np.clip(frames, 0, croma.shape[1] - 1)
     # Media de un par de frames alrededor del ataque para robustez
@@ -127,33 +127,34 @@ def _croma_en_onsets(y: np.ndarray, sr: int, tiempos: np.ndarray) -> np.ndarray:
 
 def _pitch_en_onsets(y: np.ndarray, sr: int, tiempos: np.ndarray,
                      fmin: float = 77.0, fmax: float = 1300.0) -> np.ndarray:
-    """Tono (0-11) siguiendo el pitch fundamental (pyin) en cada onset.
+    """Tono (0-11) del pico espectral dominante (piptrack) en cada onset.
 
-    Más robusto que el croma de banda ancha para una línea melódica
-    monofónica (p.ej. un riff de guitarra), porque sigue una única
-    frecuencia dominante en vez de sumar energía de todas las notas
-    presentes (lo que arrastra armónicos de voz u otros instrumentos).
-    Si el frame no tiene un pitch fiable (silencio, ruido), recurre al
-    croma de banda ancha como respaldo.
+    Sigue la frecuencia dominante en vez de sumar energía de todas las
+    notas presentes, lo que reduce el arrastre de armónicos de voz u
+    otros instrumentos. piptrack calcula un solo STFT, así que es dos
+    órdenes de magnitud más rápido que un rastreador tipo pyin con
+    resultados comparables para asignar carriles. Si el frame no tiene
+    pico fiable, recurre al croma de banda ancha como respaldo.
     """
     if len(tiempos) == 0:
         return np.array([], dtype=int)
 
-    f0, voiced_flag, _ = librosa.pyin(y, fmin=fmin, fmax=fmax, sr=sr)
+    pitches, mags = librosa.piptrack(y=y, sr=sr, fmin=fmin, fmax=fmax)
     croma_respaldo = _croma_en_onsets(y, sr, tiempos)
 
-    frames = np.clip(librosa.time_to_frames(tiempos, sr=sr), 0, len(f0) - 1)
+    frames = np.clip(librosa.time_to_frames(tiempos, sr=sr),
+                     0, pitches.shape[1] - 1)
     tonos = []
     for i, f in enumerate(frames):
-        ventana = slice(f, min(f + 3, len(f0)))
-        f0_ventana = f0[ventana]
-        voz_ventana = voiced_flag[ventana]
-        validos = f0_ventana[voz_ventana & ~np.isnan(f0_ventana)]
-        if len(validos) > 0:
-            midi = librosa.hz_to_midi(np.median(validos))
-            tonos.append(int(round(midi)) % 12)
-        else:
-            tonos.append(int(croma_respaldo[i]))
+        fin = min(f + 3, mags.shape[1])
+        ventana_mag = mags[:, f:fin]
+        if ventana_mag.size and ventana_mag.max() > 0:
+            idx = np.unravel_index(np.argmax(ventana_mag), ventana_mag.shape)
+            hz = pitches[:, f:fin][idx]
+            if hz > 0:
+                tonos.append(int(round(librosa.hz_to_midi(hz))) % 12)
+                continue
+        tonos.append(int(croma_respaldo[i]))
     return np.array(tonos, dtype=int)
 
 

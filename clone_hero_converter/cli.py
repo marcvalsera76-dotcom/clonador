@@ -78,6 +78,12 @@ def convertir(ruta: str, titulo: str, artista: str, album: str,
               instrumentos: list[str], dificultades: list[str],
               salida: str) -> str:
     """Ejecuta la conversión completa y devuelve la carpeta generada."""
+    try:
+        import static_ffmpeg
+        static_ffmpeg.add_paths(weak=True)  # instala ffmpeg si falta
+    except Exception:
+        pass
+
     print(f"\n🔎 Analizando «{titulo}» — esto puede tardar un poco...")
     analisis = analizar(ruta)
     print(f"   ✔ Duración: {analisis.duracion:.1f} s · Tempo: {analisis.bpm:.1f} BPM")
@@ -116,7 +122,11 @@ def main(argv: list[str] | None = None) -> int:
         prog="clone_hero_converter",
         description="Convierte un MP3 o vídeo en una canción jugable de Clone Hero.",
     )
-    parser.add_argument("archivo", help="Archivo de audio (mp3, wav, ogg...) o vídeo (mp4, mkv...)")
+    parser.add_argument("archivo", nargs="?", default=None,
+                        help="Archivo de audio (mp3, wav, ogg...) o vídeo (mp4, mkv...). "
+                             "Sin archivo se abre la ventana gráfica.")
+    parser.add_argument("--terminal", action="store_true",
+                        help="Forzar el modo de terminal (no abrir la ventana)")
     parser.add_argument("--titulo", help="Título de la canción")
     parser.add_argument("--artista", help="Artista")
     parser.add_argument("--album", default="", help="Álbum")
@@ -131,6 +141,19 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--version", action="version",
                         version=f"%(prog)s {__version__}")
     args = parser.parse_args(argv)
+
+    # Sin archivo (o con archivo pero sin --terminal/--si): abrir la ventana
+    if not args.terminal and not args.si:
+        try:
+            from .gui import main as gui_main
+            return gui_main(args.archivo)
+        except Exception:
+            if args.archivo is None:
+                raise
+            # sin entorno gráfico: continuar en modo terminal
+
+    if args.archivo is None:
+        parser.error("falta el archivo (o ejecuta sin --terminal para abrir la ventana)")
 
     print(f"🎮 Clone Hero Converter v{__version__}")
 
