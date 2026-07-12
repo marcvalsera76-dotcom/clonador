@@ -181,6 +181,9 @@ class VentanaConverter(tk.Tk):
     def escribir(self, texto: str):
         self.cola_mensajes.put(texto)
 
+    def _resetear_boton(self):
+        self.boton.configure(state="normal", text="🎸 CONVERTIR")
+
     def procesar_cola(self):
         try:
             while True:
@@ -255,8 +258,7 @@ class VentanaConverter(tk.Tk):
         finally:
             builtins.print = print_original
             self.convirtiendo = False
-            self.boton.after(0, lambda: self.boton.configure(
-                state="normal", text="🎸 CONVERTIR"))
+            self.boton.after(0, self._resetear_boton)
 
 
 def main(archivo: str | None = None) -> int:
