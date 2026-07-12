@@ -14,7 +14,6 @@ import shutil
 import sys
 import threading
 import tkinter as tk
-from functools import partial
 from tkinter import filedialog, messagebox, ttk
 
 from . import __version__
@@ -63,6 +62,19 @@ def _titulo_y_artista(ruta: str) -> tuple[str, str]:
         artista, titulo = base.split(" - ", 1)
         return titulo.strip(), artista.strip()
     return base.strip(), ""
+
+
+# Cola a la que _print_a_ventana envía los mensajes mientras dura una
+# conversión. Es una función con nombre a nivel de módulo (nunca una lambda
+# ni un método ligado a la ventana): así sigue siendo válida aunque alguna
+# librería intente serializar builtins.print en Windows.
+_COLA_ACTIVA: queue.Queue | None = None
+
+
+def _print_a_ventana(*args, **kwargs):
+    cola = _COLA_ACTIVA
+    if cola is not None:
+        cola.put(" ".join(str(x) for x in args))
 
 
 class VentanaConverter(tk.Tk):
@@ -185,9 +197,6 @@ class VentanaConverter(tk.Tk):
     def _resetear_boton(self):
         self.boton.configure(state="normal", text="🎸 CONVERTIR")
 
-    def _escribir_print(self, *args, **kwargs):
-        self.escribir(" ".join(str(x) for x in args))
-
     def procesar_cola(self):
         try:
             while True:
@@ -232,11 +241,13 @@ class VentanaConverter(tk.Tk):
 
     def convertir_en_hilo(self, archivo: str, instrumentos: list[str],
                           dificultades: list[str]):
+        global _COLA_ACTIVA
         import builtins
         from .cli import convertir
 
         print_original = builtins.print
-        builtins.print = partial(self._escribir_print)
+        _COLA_ACTIVA = self.cola_mensajes
+        builtins.print = _print_a_ventana
         try:
             titulo = self.var_titulo.get().strip() or "Cancion"
             artista = self.var_artista.get().strip() or "Desconocido"
@@ -261,6 +272,7 @@ class VentanaConverter(tk.Tk):
             self.escribir(f"❌ Error: {e}")
         finally:
             builtins.print = print_original
+            _COLA_ACTIVA = None
             self.convirtiendo = False
             self.boton.after(0, self._resetear_boton)
 
