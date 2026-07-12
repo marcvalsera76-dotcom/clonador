@@ -32,16 +32,31 @@ PARAMETROS = {
 SUSTAIN_MINIMO = 0.45   # hueco (s) a partir del cual la nota anterior se alarga
 SUSTAIN_MARGEN = 0.15   # margen (s) que se deja antes de la siguiente nota
 
+# --- HOPO / strum forzado ---------------------------------------------------
+# Calibrado con las 4 referencias reales analizadas (Mayonaise, Treasure,
+# Cantina Band, Shape of my Heart):
+#   - HOPO forzado (N 5): notas sueltas, de traste distinto a la anterior,
+#     separadas por poco tiempo (paso melódico rápido, "legato"). Mayonaise
+#     tenía 102 de 1632 notas así (~6%, rock de tempo medio).
+#   - Strum forzado (N 6): ataques marcados/percusivos (acordes, o notas
+#     sueltas con onset fuerte tipo "stab"), para que suenen tocadas y no
+#     "ligadas" aunque caigan dentro de la ventana de HOPO natural. Cantina
+#     Band (swing con metales staccato) tenía 834 de 1668 así (~50%).
+HOPO_TICKS = RESOLUCION // 3       # ventana de "paso rápido" (~1/12 negra)
+FUERZA_STRUM_FORZADO = 0.75        # onset por encima de esto = ataque percusivo
+
 
 @dataclass
 class Nota:
     tick: int
     carriles: list[int]   # 0=verde .. 4=naranja (batería: 0=bombo .. 4=verde)
     longitud: int = 0     # ticks de sustain (0 = nota corta)
+    forzado: int | None = None   # 5=HOPO forzado, 6=strum forzado, None=natural
 
 
 def segundos_a_ticks(t: float, bpm: float) -> int:
     return int(round(t * (bpm / 60.0) * RESOLUCION))
+
 
 
 def _mejor_snap(tick: float, resolucion: int = RESOLUCION) -> int:
@@ -197,14 +212,31 @@ def generar_pista_melodica(onsets: np.ndarray, fuerzas: np.ndarray,
     carriles = _evitar_repeticion(carriles, p["carriles"])
 
     notas: list[Nota] = []
+    anterior_fret: int | None = None
+    anterior_tick: int | None = None
     for i in range(len(t)):
         lanes = [int(carriles[i])]
+        es_acorde = f[i] >= p["acordes"]
         # Acorde de dos notas en los ataques más fuertes (solo Expert/Hard)
-        if f[i] >= p["acordes"]:
+        if es_acorde:
             vecino = lanes[0] + (1 if lanes[0] < p["carriles"] - 1 else -1)
             lanes.append(vecino)
 
         tick_inicio = mapa.a_ticks(t[i])
+
+        # HOPO / strum forzado: los acordes nunca son HOPO. Un ataque muy
+        # marcado (percusivo) fuerza strum aunque quede dentro de la
+        # ventana de HOPO; si no, un cambio de traste rápido respecto a la
+        # nota anterior se marca como HOPO forzado.
+        forzado = None
+        if not es_acorde:
+            if f[i] >= FUERZA_STRUM_FORZADO:
+                forzado = 6
+            elif (anterior_fret is not None and lanes[0] != anterior_fret
+                  and anterior_tick is not None
+                  and tick_inicio - anterior_tick <= HOPO_TICKS):
+                forzado = 5
+
         longitud = 0
         hueco = (t[i + 1] - t[i]) if i + 1 < len(t) else 0.0
         if hueco > SUSTAIN_MINIMO:
@@ -214,9 +246,20 @@ def generar_pista_melodica(onsets: np.ndarray, fuerzas: np.ndarray,
             # sustain si el tempo real varía dentro del hueco).
             tick_fin = mapa.a_ticks(t[i] + hueco - SUSTAIN_MARGEN)
             longitud = max(0, tick_fin - tick_inicio)
+            if i + 1 < len(t):
+                # Clamp: el snap a subdivisión puede empujar el final del
+                # sustain más allá de donde cae (tras su propio snap) la
+                # siguiente nota. Sin este tope el sustain se "come" la
+                # nota siguiente en el juego.
+                tick_siguiente = mapa.a_ticks(t[i + 1])
+                longitud = min(longitud, max(0, tick_siguiente - tick_inicio - 1))
 
-        notas.append(Nota(tick=tick_inicio,
-                          carriles=sorted(set(lanes)), longitud=longitud))
+        notas.append(Nota(tick=tick_inicio, carriles=sorted(set(lanes)),
+                          longitud=longitud, forzado=forzado))
+
+        # Los acordes rompen la cadena de HOPO (no se encadena tras uno).
+        anterior_fret = None if es_acorde else lanes[0]
+        anterior_tick = tick_inicio
     return notas
 
 

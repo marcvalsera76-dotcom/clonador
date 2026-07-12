@@ -71,6 +71,8 @@ def generar_chart(titulo: str, artista: str, album: str, generador: str,
         for nota in sorted(notas, key=lambda n: n.tick):
             for carril in nota.carriles:
                 lineas.append(f"{nota.tick} = N {carril} {nota.longitud}")
+            if nota.forzado is not None:
+                lineas.append(f"{nota.tick} = N {nota.forzado} 0")
         nombre = f"{dificultad}{SECCION_INSTRUMENTO[instrumento]}"
         partes.append(_seccion(nombre, lineas))
 
