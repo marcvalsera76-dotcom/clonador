@@ -14,6 +14,7 @@ import shutil
 import sys
 import threading
 import tkinter as tk
+from functools import partial
 from tkinter import filedialog, messagebox, ttk
 
 from . import __version__
@@ -184,6 +185,9 @@ class VentanaConverter(tk.Tk):
     def _resetear_boton(self):
         self.boton.configure(state="normal", text="🎸 CONVERTIR")
 
+    def _escribir_print(self, *args, **kwargs):
+        self.escribir(" ".join(str(x) for x in args))
+
     def procesar_cola(self):
         try:
             while True:
@@ -232,7 +236,7 @@ class VentanaConverter(tk.Tk):
         from .cli import convertir
 
         print_original = builtins.print
-        builtins.print = lambda *a, **k: self.escribir(" ".join(str(x) for x in a))
+        builtins.print = partial(self._escribir_print)
         try:
             titulo = self.var_titulo.get().strip() or "Cancion"
             artista = self.var_artista.get().strip() or "Desconocido"
