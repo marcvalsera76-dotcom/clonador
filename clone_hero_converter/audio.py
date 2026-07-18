@@ -11,6 +11,7 @@ import gc
 import os
 import subprocess
 import tempfile
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -20,6 +21,26 @@ SAMPLE_RATE = 22050
 
 AUDIO_EXTENSIONS = {".mp3", ".wav", ".ogg", ".flac", ".m4a", ".aac", ".opus", ".wma"}
 VIDEO_EXTENSIONS = {".mp4", ".mkv", ".avi", ".webm", ".mov", ".flv", ".wmv", ".m4v"}
+
+
+@contextmanager
+def _gc_hibrido(deshabilitar: bool = True, colectar_salida: bool = False):
+    """Context manager que desactiva el GC durante tramos críticos de memoria.
+
+    Evita interrupciones del recolector durante análisis intensivo, permitiendo
+    que Python maneje la liberación de forma natural. Solo colecta al salir si
+    es necesario.
+    """
+    previo = gc.isenabled()
+    if deshabilitar and previo:
+        gc.disable()
+    try:
+        yield
+    finally:
+        if deshabilitar and previo:
+            gc.enable()
+        if colectar_salida:
+            gc.collect()
 
 
 class AudioError(RuntimeError):
@@ -288,7 +309,8 @@ def analizar(ruta: str, logger: callable = print) -> AnalisisCancion:
 
         for i, sr_objetivo in enumerate(candidatos):
             try:
-                return _analizar_con_sr(ruta_audio, sr_objetivo, logger)
+                with _gc_hibrido(deshabilitar=True, colectar_salida=False):
+                    return _analizar_con_sr(ruta_audio, sr_objetivo, logger)
             except MemoryError:
                 gc.collect()
                 if i == len(candidatos) - 1:
