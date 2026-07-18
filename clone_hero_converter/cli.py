@@ -18,7 +18,7 @@ import sys
 from . import __version__
 from .audio import AudioError, analizar, convertir_a_ogg, es_formato_soportado
 from .chartfile import NOMBRE_INSTRUMENTO, generar_chart, generar_song_ini
-from .charting import DIFICULTADES, generar_instrumento
+from .charting import DIFICULTADES, construir_mapa_tempo, generar_instrumento
 
 INSTRUMENTOS = ["guitar", "bass", "drums", "keys"]
 INSTRUMENTOS_POR_DEFECTO = ["guitar", "bass", "keys"]  # sin batería por defecto
@@ -88,10 +88,17 @@ def convertir(ruta: str, titulo: str, artista: str, album: str,
     analisis = analizar(ruta)
     print(f"   ✔ Duración: {analisis.duracion:.1f} s · Tempo: {analisis.bpm:.1f} BPM")
 
+    # Mapa de tempo VARIABLE (un tramo de BPM por cada beat detectado) en
+    # vez de un único BPM fijo para toda la canción: evita que las notas se
+    # desincronicen progresivamente cuando el tempo real de la grabación
+    # fluctúa, aunque sea ligeramente (lo normal en cualquier grabación no
+    # cuantizada a click).
+    mapa = construir_mapa_tempo(analisis.tiempos_beat, analisis.bpm)
+
     pistas = {}
     for instrumento in instrumentos:
         for dificultad in dificultades:
-            notas = generar_instrumento(analisis, instrumento, dificultad)
+            notas = generar_instrumento(analisis, instrumento, dificultad, mapa)
             pistas[(instrumento, dificultad)] = notas
         n_expert = len(pistas.get((instrumento, "Expert"),
                                   pistas[(instrumento, dificultades[-1])]))
@@ -103,7 +110,7 @@ def convertir(ruta: str, titulo: str, artista: str, album: str,
 
     print("📝 Escribiendo notes.chart y song.ini...")
     chart = generar_chart(titulo, artista, album, GENERADOR,
-                          analisis.bpm, 0.0, pistas)
+                          mapa.sync_track(), 0.0, pistas)
     with open(os.path.join(carpeta, "notes.chart"), "w", encoding="utf-8") as f:
         f.write(chart)
     ini = generar_song_ini(titulo, artista, album, GENERADOR,

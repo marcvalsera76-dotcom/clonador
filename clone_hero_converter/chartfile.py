@@ -26,10 +26,13 @@ def _seccion(nombre: str, lineas: list[str]) -> str:
 
 
 def generar_chart(titulo: str, artista: str, album: str, generador: str,
-                  bpm: float, offset: float,
+                  sync_track: list[tuple[int, float]], offset: float,
                   pistas: dict[tuple[str, str], list[Nota]]) -> str:
     """Genera el contenido completo de notes.chart.
 
+    `sync_track` es la lista (tick, bpm) de MapaTempo.sync_track() — un
+    evento B por cada tramo de tempo detectado, no un único BPM fijo para
+    toda la canción (así es como lo hacen los charts de referencia reales).
     `pistas` mapea (instrumento, dificultad) -> lista de notas.
     """
     partes = []
@@ -50,11 +53,12 @@ def generar_chart(titulo: str, artista: str, album: str, generador: str,
         'MusicStream = "song.ogg"',
     ]))
 
-    bpm_milesimas = int(round(bpm * 1000))
-    partes.append(_seccion("SyncTrack", [
-        "0 = TS 4",
-        f"0 = B {bpm_milesimas}",
-    ]))
+    if not sync_track:
+        sync_track = [(0, 120.0)]
+    lineas_sync = ["0 = TS 4"]
+    for tick, bpm in sync_track:
+        lineas_sync.append(f"{tick} = B {int(round(bpm * 1000))}")
+    partes.append(_seccion("SyncTrack", lineas_sync))
 
     partes.append(_seccion("Events", [
         '0 = E "section Inicio"',
@@ -67,6 +71,8 @@ def generar_chart(titulo: str, artista: str, album: str, generador: str,
         for nota in sorted(notas, key=lambda n: n.tick):
             for carril in nota.carriles:
                 lineas.append(f"{nota.tick} = N {carril} {nota.longitud}")
+            if nota.forzado is not None:
+                lineas.append(f"{nota.tick} = N {nota.forzado} 0")
         nombre = f"{dificultad}{SECCION_INSTRUMENTO[instrumento]}"
         partes.append(_seccion(nombre, lineas))
 
