@@ -25,10 +25,17 @@ DIFICULTADES = ["Easy", "Medium", "Hard", "Expert"]
 #   carriles: número de carriles usados (desde el verde)
 #   umbral: fuerza mínima del onset para conservar la nota
 #   acordes: probabilidad-fuerza a partir de la cual una nota se vuelve acorde
+#
+# El número de carriles sigue la convención estándar de Guitar Hero/Clone
+# Hero: Easy usa 3 (verde/rojo/amarillo), Medium 4 (+ azul), y Hard ya usa
+# los 5 igual que Expert (+ naranja) — Hard NO es "Expert con un carril
+# menos", es Expert con menos densidad de notas. Antes Hard tenía
+# carriles=4 y Medium carriles=3, así que el naranja nunca aparecía en
+# Hard (y el azul casi nunca en Medium).
 PARAMETROS = {
     "Expert": dict(sep_min=0.100, carriles=5, umbral=0.07, acordes=0.95),
-    "Hard":   dict(sep_min=0.170, carriles=4, umbral=0.18, acordes=1.05),
-    "Medium": dict(sep_min=0.280, carriles=3, umbral=0.28, acordes=1.10),
+    "Hard":   dict(sep_min=0.170, carriles=5, umbral=0.18, acordes=1.05),
+    "Medium": dict(sep_min=0.280, carriles=4, umbral=0.28, acordes=1.10),
     "Easy":   dict(sep_min=0.500, carriles=3, umbral=0.40, acordes=1.10),
 }
 

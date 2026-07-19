@@ -122,6 +122,31 @@ def test_carril_agudo_usa_todos_los_carriles():
     assert carriles_usados == {0, 1, 2, 3, 4}, "debe usar los 5 carriles, incluido el naranja"
 
 
+def test_hard_usa_los_5_carriles_igual_que_expert():
+    # Convención estándar Guitar Hero/Clone Hero: Hard NO es "Expert menos
+    # un carril" — usa los mismos 5 carriles que Expert (incluido el
+    # naranja), solo con menos densidad de notas. Solo Easy (3) y Medium
+    # (4) recortan carriles.
+    onsets = np.arange(60) * 0.3
+    fuerzas = np.full(60, 0.9)
+    tonos = np.tile(np.arange(12), 5)
+    mapa = _mapa_fijo(120.0)
+    notas = generar_pista_melodica(onsets, fuerzas, tonos, mapa, "Hard")
+    carriles_usados = {c for n in notas for c in n.carriles}
+    assert 4 in carriles_usados, "el naranja debe poder aparecer en Hard"
+
+
+def test_medium_usa_hasta_el_carril_azul():
+    onsets = np.arange(60) * 0.4
+    fuerzas = np.full(60, 0.9)
+    tonos = np.tile(np.arange(12), 5)
+    mapa = _mapa_fijo(120.0)
+    notas = generar_pista_melodica(onsets, fuerzas, tonos, mapa, "Medium")
+    carriles_usados = {c for n in notas for c in n.carriles}
+    assert carriles_usados <= {0, 1, 2, 3}
+    assert 3 in carriles_usados, "el azul debe poder aparecer en Medium"
+
+
 def test_bateria_bandas():
     onsets = np.arange(40) * 0.25
     fuerzas = np.full(40, 0.6)
