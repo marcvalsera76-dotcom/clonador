@@ -27,13 +27,20 @@ def _seccion(nombre: str, lineas: list[str]) -> str:
 
 def generar_chart(titulo: str, artista: str, album: str, generador: str,
                   sync_track: list[tuple[int, float]], offset: float,
-                  pistas: dict[tuple[str, str], list[Nota]]) -> str:
+                  pistas: dict[tuple[str, str], list[Nota]],
+                  secciones: list[tuple[int, str]] | None = None,
+                  star_power: dict[tuple[str, str], list[tuple[int, int]]] | None = None
+                  ) -> str:
     """Genera el contenido completo de notes.chart.
 
     `sync_track` es la lista (tick, bpm) de MapaTempo.sync_track() — un
     evento B por cada tramo de tempo detectado, no un único BPM fijo para
     toda la canción (así es como lo hacen los charts de referencia reales).
     `pistas` mapea (instrumento, dificultad) -> lista de notas.
+    `secciones` es la lista (tick, nombre) de nombres_de_seccion() para
+    navegar el chart en el editor (Intro/Verse/Chorus/.../Outro).
+    `star_power` mapea (instrumento, dificultad) -> lista (tick, longitud)
+    de generar_star_power(): frases de energía sobre los tramos más densos.
     """
     partes = []
 
@@ -60,10 +67,12 @@ def generar_chart(titulo: str, artista: str, album: str, generador: str,
         lineas_sync.append(f"{tick} = B {int(round(bpm * 1000))}")
     partes.append(_seccion("SyncTrack", lineas_sync))
 
-    partes.append(_seccion("Events", [
-        '0 = E "section Inicio"',
-    ]))
+    if not secciones:
+        secciones = [(0, "Inicio")]
+    lineas_eventos = [f'{tick} = E "section {nombre}"' for tick, nombre in secciones]
+    partes.append(_seccion("Events", lineas_eventos))
 
+    star_power = star_power or {}
     for (instrumento, dificultad), notas in sorted(pistas.items()):
         if not notas:
             continue
@@ -73,6 +82,8 @@ def generar_chart(titulo: str, artista: str, album: str, generador: str,
                 lineas.append(f"{nota.tick} = N {carril} {nota.longitud}")
             if nota.forzado is not None:
                 lineas.append(f"{nota.tick} = N {nota.forzado} 0")
+        for tick, longitud in star_power.get((instrumento, dificultad), []):
+            lineas.append(f"{tick} = S 2 {longitud}")
         nombre = f"{dificultad}{SECCION_INSTRUMENTO[instrumento]}"
         partes.append(_seccion(nombre, lineas))
 

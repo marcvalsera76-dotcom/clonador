@@ -18,7 +18,10 @@ import sys
 from . import __version__
 from .audio import AudioError, analizar, convertir_a_ogg, es_formato_soportado
 from .chartfile import NOMBRE_INSTRUMENTO, generar_chart, generar_song_ini
-from .charting import DIFICULTADES, construir_mapa_tempo, generar_instrumento
+from .charting import (
+    DIFICULTADES, construir_mapa_tempo, generar_instrumento,
+    generar_star_power, nombres_de_seccion,
+)
 
 INSTRUMENTOS = ["guitar", "bass", "drums", "keys"]
 INSTRUMENTOS_POR_DEFECTO = ["guitar", "bass", "keys"]  # sin batería por defecto
@@ -96,21 +99,30 @@ def convertir(ruta: str, titulo: str, artista: str, album: str,
     mapa = construir_mapa_tempo(analisis.tiempos_beat, analisis.bpm)
 
     pistas = {}
+    star_power = {}
     for instrumento in instrumentos:
         for dificultad in dificultades:
             notas = generar_instrumento(analisis, instrumento, dificultad, mapa)
             pistas[(instrumento, dificultad)] = notas
+            star_power[(instrumento, dificultad)] = generar_star_power(notas)
         n_expert = len(pistas.get((instrumento, "Expert"),
                                   pistas[(instrumento, dificultades[-1])]))
         print(f"   ✔ {NOMBRE_INSTRUMENTO[instrumento]}: "
               f"{n_expert} notas en la dificultad más alta")
+
+    # Estructura de la canción (Intro/Verse/Chorus/.../Outro): navegable
+    # desde el editor y punto de referencia visual para el jugador.
+    nombres = nombres_de_seccion(len(analisis.limites_secciones))
+    secciones = [(mapa.a_ticks(t), nombre)
+                 for t, nombre in zip(analisis.limites_secciones, nombres)]
 
     carpeta = os.path.join(salida, _limpiar_nombre(f"{artista} - {titulo}"))
     os.makedirs(carpeta, exist_ok=True)
 
     print("📝 Escribiendo notes.chart y song.ini...")
     chart = generar_chart(titulo, artista, album, GENERADOR,
-                          mapa.sync_track(), 0.0, pistas)
+                          mapa.sync_track(), 0.0, pistas,
+                          secciones=secciones, star_power=star_power)
     with open(os.path.join(carpeta, "notes.chart"), "w", encoding="utf-8") as f:
         f.write(chart)
     ini = generar_song_ini(titulo, artista, album, GENERADOR,

@@ -5,9 +5,9 @@ import re
 import numpy as np
 
 from clone_hero_converter.charting import (
-    DIFICULTADES, FUERZA_STRUM_FORZADO, HOPO_TICKS, MapaTempo, Nota,
-    construir_mapa_tempo, generar_pista_bateria, generar_pista_melodica,
-    segundos_a_ticks,
+    DIFICULTADES, FUERZA_STRUM_FORZADO, HOPO_TICKS, RESOLUCION, MapaTempo,
+    Nota, construir_mapa_tempo, generar_pista_bateria, generar_pista_melodica,
+    generar_star_power, nombres_de_seccion, segundos_a_ticks,
 )
 from clone_hero_converter.chartfile import generar_chart, generar_song_ini
 
@@ -113,7 +113,7 @@ def test_strum_forzado_en_ataque_percusivo():
 
 def test_acorde_nunca_es_hopo():
     onsets = np.array([0.0, 0.12])
-    fuerzas = np.array([0.3, 0.85])   # 2ª nota por encima de umbral "acordes" Expert (0.80)
+    fuerzas = np.array([0.3, 0.97])   # 2ª nota por encima de umbral "acordes" Expert (0.95)
     tonos = np.array([0, 4])
     mapa = _mapa_fijo(120.0)
     notas = generar_pista_melodica(onsets, fuerzas, tonos, mapa, "Expert")
@@ -149,6 +149,61 @@ def test_formato_chart():
     assert re.search(r'192 = N 1 96', chart)
     assert re.search(r'192 = N 2 96', chart)
     assert re.search(r'384 = N 5 0', chart)   # marca de HOPO forzado
+
+
+def test_star_power_cubre_bloques_de_varias_notas():
+    # Racha densa de acordes (climax) seguida de un tramo suelto y espaciado.
+    onsets = np.concatenate([np.arange(20) * 0.15, np.arange(5) * 2.0 + 5.0])
+    fuerzas = np.concatenate([np.full(20, 0.9), np.full(5, 0.3)])
+    tonos = np.tile(np.arange(12), 3)[:25]
+    mapa = _mapa_fijo(120.0)
+    notas = generar_pista_melodica(onsets, fuerzas, tonos, mapa, "Expert")
+    frases = generar_star_power(notas, n_frases_objetivo=3)
+    assert frases, "debe colocar al menos una frase de Star Power"
+    for inicio, longitud in frases:
+        assert longitud >= RESOLUCION
+        assert inicio >= 0
+
+
+def test_star_power_no_solapa_frases():
+    onsets, fuerzas, tonos = _onsets_de_ejemplo(n=200, paso=0.15)
+    mapa = _mapa_fijo(120.0)
+    notas = generar_pista_melodica(onsets, fuerzas, tonos, mapa, "Expert")
+    frases = generar_star_power(notas, n_frases_objetivo=6)
+    frases_ordenadas = sorted(frases)
+    for (i1, l1), (i2, l2) in zip(frases_ordenadas, frases_ordenadas[1:]):
+        assert i1 + l1 <= i2, "las frases de SP no deben solaparse"
+
+
+def test_star_power_vacio_con_pocas_notas():
+    onsets = np.array([0.0, 0.5, 1.0])
+    fuerzas = np.array([0.5, 0.5, 0.5])
+    tonos = np.array([0, 4, 8])
+    mapa = _mapa_fijo(120.0)
+    notas = generar_pista_melodica(onsets, fuerzas, tonos, mapa, "Expert")
+    assert generar_star_power(notas) == []
+
+
+def test_nombres_de_seccion():
+    assert nombres_de_seccion(0) == []
+    assert nombres_de_seccion(1) == ["Song"]
+    nombres = nombres_de_seccion(6)
+    assert nombres[0] == "Intro"
+    assert nombres[-1] == "Outro"
+    assert len(nombres) == 6
+    assert len(set(nombres)) == len(nombres)   # sin nombres repetidos
+
+
+def test_chart_incluye_secciones_y_star_power():
+    pistas = {("guitar", "Expert"): [Nota(0, [0]), Nota(192, [1, 2], 96)]}
+    secciones = [(0, "Intro"), (384, "Verse"), (768, "Outro")]
+    star_power = {("guitar", "Expert"): [(0, 192)]}
+    chart = generar_chart("Titulo", "Artista", "", "Test", [(0, 120.0)], 0.0,
+                          pistas, secciones=secciones, star_power=star_power)
+    assert '0 = E "section Intro"' in chart
+    assert '384 = E "section Verse"' in chart
+    assert '768 = E "section Outro"' in chart
+    assert '0 = S 2 192' in chart
 
 
 def test_song_ini():

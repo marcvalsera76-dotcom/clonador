@@ -105,6 +105,8 @@ class AnalisisCancion:
     onsets_bateria: np.ndarray
     fuerza_bateria: np.ndarray
     banda_bateria: np.ndarray         # 0=grave(bombo) 1=media(caja) 2=aguda(platos)
+    # Estructura de la canción (Intro/Verso/Estribillo/Outro...)
+    limites_secciones: np.ndarray = field(default_factory=lambda: np.array([]))
     extra: dict = field(default_factory=dict)
 
 
@@ -194,6 +196,32 @@ def _filtrar_banda(y: np.ndarray, sr: int, f_max: float | None = None,
     return librosa.istft(stft_filtrado, length=len(y))
 
 
+def _detectar_secciones(y: np.ndarray, sr: int, duracion: float) -> np.ndarray:
+    """Detecta límites de sección (tiempos, s) mediante segmentación
+    estructural (auto-similitud de timbre + armonía), la misma técnica que
+    usan las herramientas de análisis de estructura musical.
+
+    No sabe distinguir semánticamente "estribillo" de "verso" (eso exigiría
+    letra o metadatos), pero sí encuentra los puntos donde el carácter de la
+    canción cambia de forma clara, que es justo donde un charter humano
+    coloca los marcadores de sección.
+    """
+    # Una sección por cada ~35s de canción, con un mínimo de 3 (intro/
+    # cuerpo/outro) y un máximo razonable para no saturar de eventos.
+    n_secciones = int(np.clip(round(duracion / 35), 3, 10))
+    try:
+        mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13)
+        chroma = librosa.feature.chroma_cqt(y=y, sr=sr)
+        n = min(mfcc.shape[1], chroma.shape[1])
+        rasgos = np.vstack([mfcc[:, :n], chroma[:, :n]])
+        limites_frames = librosa.segment.agglomerative(rasgos, n_secciones)
+        limites = librosa.frames_to_time(limites_frames, sr=sr)
+        limites = np.unique(np.concatenate([[0.0], limites, [duracion]]))
+        return limites
+    except Exception:
+        return np.array([0.0, duracion])
+
+
 def _analizar_bateria(y_perc: np.ndarray, sr: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Detecta golpes percusivos y los clasifica por banda de frecuencia."""
     tiempos, fuerzas = _onsets_con_fuerza(y_perc, sr)
@@ -243,6 +271,9 @@ def _analizar_con_sr(ruta_audio: str, sr_objetivo: int,
         bpm /= 2
     tiempos_beat = librosa.frames_to_time(frames_beat, sr=sr)
 
+    logger("🗺️ Detectando estructura de la canción...")
+    limites_secciones = _detectar_secciones(y, sr, duracion)
+
     logger("🎸 Separando componentes armónico y percusivo...")
     y_harm, y_perc = librosa.effects.hpss(y, margin=(1.0, 5.0))
     del y
@@ -276,6 +307,7 @@ def _analizar_con_sr(ruta_audio: str, sr_objetivo: int,
         onsets_bateria=onsets_bat,
         fuerza_bateria=fuerza_bat,
         banda_bateria=banda_bat,
+        limites_secciones=limites_secciones,
     )
 
 

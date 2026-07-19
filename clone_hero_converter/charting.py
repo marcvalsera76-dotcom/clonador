@@ -291,6 +291,77 @@ def generar_pista_bateria(onsets: np.ndarray, fuerzas: np.ndarray,
     return notas
 
 
+def generar_star_power(notas: list[Nota],
+                       n_frases_objetivo: int = 6) -> list[tuple[int, int]]:
+    """Coloca frases de Star Power (evento `S 2`) sobre los tramos de mayor
+    densidad/dificultad de la pista, como haría un charter humano: pocas
+    frases (5-8 en una canción de 3 min), espaciadas para dejar huecos de
+    respiro, y cada una cubre una racha de varias notas consecutivas —
+    nunca una nota suelta ni el chart entero.
+    """
+    if len(notas) < 10:
+        return []
+    notas = sorted(notas, key=lambda n: n.tick)
+    ticks = np.array([n.tick for n in notas])
+    # Los acordes y las notas forzadas pesan más: son los pasajes que un
+    # charter marca como climáticos.
+    pesos = np.array([
+        (1.5 if len(n.carriles) > 1 else 1.0) * (1.2 if n.forzado else 1.0)
+        for n in notas
+    ])
+
+    ventana = RESOLUCION * 8   # ~2 compases en 4/4: frase típica de SP
+    densidades = np.array([
+        pesos[(ticks >= t - ventana / 2) & (ticks <= t + ventana / 2)].sum()
+        for t in ticks
+    ])
+
+    duracion_ticks = max(1, int(ticks[-1] - ticks[0]))
+    separacion_min = max(RESOLUCION * 16,
+                         duracion_ticks // max(n_frases_objetivo * 2, 1))
+
+    frases: list[tuple[int, int]] = []
+    for idx in np.argsort(densidades)[::-1]:
+        if len(frases) >= n_frases_objetivo:
+            break
+        centro = ticks[idx]
+        mascara = (ticks >= centro - ventana / 2) & (ticks <= centro + ventana / 2)
+        bloque = np.where(mascara)[0]
+        if len(bloque) < 4:                      # una frase necesita cuerpo
+            continue
+        inicio, fin = int(ticks[bloque[0]]), int(ticks[bloque[-1]])
+        if any(not (fin < f_ini - separacion_min or inicio > f_fin + separacion_min)
+               for f_ini, f_fin in frases):
+            continue                              # se solapa con otra frase
+        frases.append((inicio, fin))
+
+    frases.sort()
+    return [(inicio, max(RESOLUCION, fin - inicio)) for inicio, fin in frases]
+
+
+def nombres_de_seccion(n: int) -> list[str]:
+    """Etiquetas genéricas Intro/Verse/Chorus/.../Outro para los `n` tramos
+    detectados por `_detectar_secciones`. No hay forma de saber qué tramo es
+    realmente un estribillo sin letra, pero alternar Verse/Chorus entre
+    Intro y Outro es la convención que siguen los auto-charters y ya deja
+    la canción navegable por secciones en el editor.
+    """
+    if n <= 0:
+        return []
+    if n == 1:
+        return ["Song"]
+    nombres = ["Intro"]
+    ciclo = ["Verse", "Chorus"]
+    i = 0
+    while len(nombres) < n - 1:
+        repeticion = i // 2 + 1
+        base = ciclo[i % 2]
+        nombres.append(f"{base} {repeticion}" if repeticion > 1 else base)
+        i += 1
+    nombres.append("Outro")
+    return nombres[:n]
+
+
 def generar_instrumento(analisis: AnalisisCancion, instrumento: str,
                         dificultad: str, mapa: MapaTempo | None = None) -> list[Nota]:
     """Genera la lista de notas de un instrumento y dificultad concretos.
