@@ -16,7 +16,10 @@ import re
 import sys
 
 from . import __version__
-from .audio import AudioError, analizar, convertir_a_ogg, es_formato_soportado
+from .audio import (
+    AudioError, analizar, convertir_a_ogg, es_formato_soportado,
+    verificar_ffmpeg,
+)
 from .chartfile import NOMBRE_INSTRUMENTO, generar_chart, generar_song_ini
 from .charting import (
     DIFICULTADES, construir_mapa_tempo, generar_instrumento,
@@ -81,11 +84,8 @@ def convertir(ruta: str, titulo: str, artista: str, album: str,
               instrumentos: list[str], dificultades: list[str],
               salida: str) -> str:
     """Ejecuta la conversión completa y devuelve la carpeta generada."""
-    try:
-        import static_ffmpeg
-        static_ffmpeg.add_paths(weak=True)  # instala ffmpeg si falta
-    except Exception:
-        pass
+    print("🔧 Comprobando ffmpeg...")
+    verificar_ffmpeg()  # falla rápido y con mensaje claro si no está disponible
 
     print(f"\n🔎 Analizando «{titulo}» — esto puede tardar un poco...")
     analisis = analizar(ruta)
@@ -175,12 +175,6 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("falta el archivo (o ejecuta sin --terminal para abrir la ventana)")
 
     print(f"🎮 Clone Hero Converter v{__version__}")
-
-    try:
-        import static_ffmpeg
-        static_ffmpeg.add_paths(weak=True)
-    except Exception:
-        pass
 
     if not os.path.exists(args.archivo):
         print(f"❌ No existe el archivo: {args.archivo}", file=sys.stderr)

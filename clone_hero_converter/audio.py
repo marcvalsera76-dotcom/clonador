@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import gc
 import os
+import shutil
 import subprocess
 import tempfile
 from contextlib import contextmanager
@@ -56,8 +57,11 @@ def es_formato_soportado(ruta: str) -> bool:
     return ext in AUDIO_EXTENSIONS or ext in VIDEO_EXTENSIONS
 
 
+_RUTA_FFMPEG_CACHE: str | None = None
+
+
 def _ruta_ffmpeg() -> str:
-    """Ruta absoluta al ejecutable de ffmpeg que instala static-ffmpeg.
+    """Ruta absoluta al ejecutable de ffmpeg.
 
     `static_ffmpeg.add_paths()` solo añade la carpeta al PATH del proceso,
     y en algunos Windows (usuario sin permisos de escritura en el PATH del
@@ -65,13 +69,53 @@ def _ruta_ffmpeg() -> str:
     PATH modificado no llega a `subprocess.run(["ffmpeg", ...])`, que
     entonces falla con WinError 2 aunque el binario ya esté descargado.
     Pedir la ruta absoluta directamente evita depender del PATH.
+
+    Si ya hay un `ffmpeg` instalado y en el PATH del sistema, se usa ese
+    (evita descargas innecesarias). Si no, se delega en static-ffmpeg; si
+    esa descarga falla, se lanza el error real en vez de esconderlo detrás
+    de un "ffmpeg" que fallará exactamente igual.
     """
+    global _RUTA_FFMPEG_CACHE
+    if _RUTA_FFMPEG_CACHE:
+        return _RUTA_FFMPEG_CACHE
+
+    encontrado = shutil.which("ffmpeg")
+    if encontrado:
+        _RUTA_FFMPEG_CACHE = encontrado
+        return encontrado
+
     try:
         import static_ffmpeg.run
         ffmpeg_path, _ = static_ffmpeg.run.get_or_fetch_platform_executables_else_raise()
-        return ffmpeg_path
-    except Exception:
-        return "ffmpeg"  # último recurso: confiar en que esté en el PATH
+    except Exception as e:
+        raise AudioError(
+            "No se encontró ffmpeg y no se pudo descargar automáticamente "
+            f"({type(e).__name__}: {e}).\n"
+            "Comprueba tu conexión a internet o que el antivirus/firewall no "
+            "esté bloqueando la descarga desde github.com. Alternativa: "
+            "instala ffmpeg manualmente desde https://www.gyan.dev/ffmpeg/builds/ "
+            "y añádelo al PATH del sistema."
+        )
+    if not ffmpeg_path or not os.path.exists(ffmpeg_path):
+        raise AudioError(
+            f"static-ffmpeg indicó la ruta {ffmpeg_path!r} pero el archivo no "
+            "existe. Borra la carpeta static_ffmpeg de "
+            "%LOCALAPPDATA%\\...\\site-packages\\static_ffmpeg y vuelve a "
+            "intentarlo para forzar una descarga limpia."
+        )
+    _RUTA_FFMPEG_CACHE = ffmpeg_path
+    return ffmpeg_path
+
+
+def verificar_ffmpeg() -> str:
+    """Comprueba (y descarga si hace falta) ffmpeg antes de empezar.
+
+    Se llama al principio de la conversión para fallar rápido con un
+    mensaje claro, en vez de que el usuario espere el análisis completo
+    (puede ser bastante largo) y se encuentre el error solo al final, al
+    intentar escribir song.ogg.
+    """
+    return _ruta_ffmpeg()
 
 
 def extraer_audio_de_video(ruta_video: str, destino: str) -> str:
