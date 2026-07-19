@@ -56,14 +56,35 @@ def es_formato_soportado(ruta: str) -> bool:
     return ext in AUDIO_EXTENSIONS or ext in VIDEO_EXTENSIONS
 
 
+def _ruta_ffmpeg() -> str:
+    """Ruta absoluta al ejecutable de ffmpeg que instala static-ffmpeg.
+
+    `static_ffmpeg.add_paths()` solo añade la carpeta al PATH del proceso,
+    y en algunos Windows (usuario sin permisos de escritura en el PATH del
+    sistema, hilos secundarios, antivirus interceptando la descarga) ese
+    PATH modificado no llega a `subprocess.run(["ffmpeg", ...])`, que
+    entonces falla con WinError 2 aunque el binario ya esté descargado.
+    Pedir la ruta absoluta directamente evita depender del PATH.
+    """
+    try:
+        import static_ffmpeg.run
+        ffmpeg_path, _ = static_ffmpeg.run.get_or_fetch_platform_executables_else_raise()
+        return ffmpeg_path
+    except Exception:
+        return "ffmpeg"  # último recurso: confiar en que esté en el PATH
+
+
 def extraer_audio_de_video(ruta_video: str, destino: str) -> str:
     """Extrae la pista de audio de un vídeo a un WAV temporal con ffmpeg."""
     cmd = [
-        "ffmpeg", "-y", "-i", ruta_video,
+        _ruta_ffmpeg(), "-y", "-i", ruta_video,
         "-vn", "-ac", "1", "-ar", str(SAMPLE_RATE),
         destino,
     ]
-    resultado = subprocess.run(cmd, capture_output=True, text=True)
+    try:
+        resultado = subprocess.run(cmd, capture_output=True, text=True)
+    except OSError as e:
+        raise AudioError(f"No se pudo ejecutar ffmpeg: {e}")
     if resultado.returncode != 0:
         raise AudioError(
             f"ffmpeg no pudo extraer el audio del vídeo:\n{resultado.stderr[-500:]}"
@@ -74,11 +95,14 @@ def extraer_audio_de_video(ruta_video: str, destino: str) -> str:
 def convertir_a_ogg(ruta_audio: str, destino: str) -> str:
     """Convierte el audio original a OGG (formato que usa Clone Hero)."""
     cmd = [
-        "ffmpeg", "-y", "-i", ruta_audio,
+        _ruta_ffmpeg(), "-y", "-i", ruta_audio,
         "-vn", "-c:a", "libvorbis", "-q:a", "6",
         destino,
     ]
-    resultado = subprocess.run(cmd, capture_output=True, text=True)
+    try:
+        resultado = subprocess.run(cmd, capture_output=True, text=True)
+    except OSError as e:
+        raise AudioError(f"No se pudo ejecutar ffmpeg: {e}")
     if resultado.returncode != 0:
         raise AudioError(
             f"ffmpeg no pudo convertir el audio a OGG:\n{resultado.stderr[-500:]}"
