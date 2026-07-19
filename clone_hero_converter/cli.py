@@ -125,14 +125,23 @@ def convertir(ruta: str, titulo: str, artista: str, album: str,
 
     # Estructura de la canción (Intro/Verse/Chorus/.../Outro): navegable
     # desde el editor y punto de referencia visual para el jugador.
-    nombres = nombres_de_seccion(len(analisis.limites_secciones))
+    #
+    # analisis.limites_secciones son PUNTOS frontera (incluye 0.0 al
+    # principio y la duración total al final), no nombres de sección: el
+    # último punto (duracion) solo marca el final del último tramo, no el
+    # inicio de uno nuevo. Nombrar uno por cada punto (como se hacía antes)
+    # ponía "Outro" en un evento sin duración justo al final de la canción,
+    # y el tramo real final se quedaba con el nombre "Verse"/"Chorus" que
+    # le tocara en el ciclo, en vez de "Outro".
+    limites_inicio = analisis.limites_secciones[:-1]
+    nombres = nombres_de_seccion(len(limites_inicio))
     secciones = [(mapa.a_ticks(t), nombre)
-                 for t, nombre in zip(analisis.limites_secciones, nombres)]
+                 for t, nombre in zip(limites_inicio, nombres)]
     # Evita mostrar dos límites que redondeen al mismo mm:ss (p.ej. un
     # límite espurio a 0.02s justo detrás del inicio en 0.0s).
     vistos = set()
     etiquetas_seccion = []
-    for t, nombre in zip(analisis.limites_secciones, nombres):
+    for t, nombre in zip(limites_inicio, nombres):
         marca = _mmss(t)
         if marca in vistos:
             continue
