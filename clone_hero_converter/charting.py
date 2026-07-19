@@ -15,6 +15,9 @@ from .audio import AnalisisCancion
 
 RESOLUCION = 192  # ticks por negra (estándar de .chart)
 
+TOLERANCIA_BPM = 2.0  # variación de BPM entre tramos por debajo de la cual
+                      # se considera el mismo tempo (ver MapaTempo.sync_track)
+
 DIFICULTADES = ["Easy", "Medium", "Hard", "Expert"]
 
 # Parámetros de reducción por dificultad:
@@ -98,8 +101,8 @@ class MapaTempo:
         self._ticks_beat = np.arange(len(self.tiempos_beat)) * self.resolucion
 
     def sync_track(self) -> list[tuple[int, float]]:
-        """Lista (tick, bpm) — un evento B por cada tramo entre beats,
-        lista para escribirse tal cual en [SyncTrack].
+        """Lista (tick, bpm) — un evento B por cada tramo en que el tempo
+        cambia de verdad, lista para escribirse tal cual en [SyncTrack].
 
         Cada BPM se acota a un rango razonable (20-400): un tramo con un
         hueco anómalo entre beats (silencio, sección sin pulso claro que
@@ -107,13 +110,27 @@ class MapaTempo:
         alto. Un evento B así de extremo no es solo "feo": algunos charts
         con BPM degenerados no llegan a listarse en Clone Hero al
         escanear la carpeta de Songs.
+
+        No se emite un evento por cada beat: la detección de tempo tiene
+        "temblor" (jitter) de un beat a otro incluso en una canción de
+        tempo constante, así que escribir el BPM crudo de cada tramo deja
+        un SyncTrack con miles de eventos casi idénticos (p.ej. 143.5,
+        143.6, 143.4...) para una sola canción larga. Eso hincha mucho el
+        archivo y puede ser parte de por qué Clone Hero se atasca al
+        cargarlo. Solo se escribe un evento nuevo cuando el BPM se aparta
+        más de TOLERANCIA_BPM del último escrito; el resto del tramo
+        queda cubierto por ese mismo tempo, igual que en los charts de
+        referencia hechos a mano.
         """
         eventos = []
+        bpm_anterior = None
         for i in range(len(self.tiempos_beat) - 1):
             dt = self.tiempos_beat[i + 1] - self.tiempos_beat[i]
             bpm = 60.0 / dt if dt > 1e-6 else 120.0
             bpm = max(20.0, min(400.0, bpm))
-            eventos.append((int(self._ticks_beat[i]), bpm))
+            if bpm_anterior is None or abs(bpm - bpm_anterior) > TOLERANCIA_BPM:
+                eventos.append((int(self._ticks_beat[i]), bpm))
+                bpm_anterior = bpm
         return eventos
 
     def a_ticks(self, t: float) -> int:

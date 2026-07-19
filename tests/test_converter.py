@@ -45,8 +45,10 @@ def test_mapa_tempo_variable_sigue_el_tempo_local():
     mapa = construir_mapa_tempo(beats, bpm_global=90.0)
     sync = mapa.sync_track()
     bpms = [round(b) for _, b in sync]
-    assert bpms[:3] == [60, 60, 60]   # tramos lentos
-    assert bpms[-1] == 120            # tramo rápido al final
+    # sync_track() fusiona tramos consecutivos de BPM parecido (ver
+    # TOLERANCIA_BPM): los 3 tramos a 60 dan un único evento, igual que
+    # los 3 tramos a 120, así que solo deben quedar 2 cambios reales.
+    assert bpms == [60, 120]
     # El tick del beat 3 (tick=576) debe seguir siendo tick 576 exacto
     assert mapa.a_ticks(3.0) == 576
 
@@ -61,6 +63,29 @@ def test_a_ticks_nunca_es_negativo_antes_del_primer_beat():
     mapa = construir_mapa_tempo(beats, bpm_global=120.0)
     assert mapa.a_ticks(0.0) == 0
     assert mapa.a_ticks(3.5) == 0   # bastante antes del primer beat también
+
+
+def test_sync_track_fusiona_jitter_de_tempo_casi_constante():
+    # Con tempo real constante (120 BPM), el detector de beats siempre
+    # tiene algo de temblor: los intervalos no son EXACTAMENTE iguales.
+    # Sin fusionar tramos parecidos, esto generaría un evento B distinto
+    # en cada beat (miles de líneas en una canción larga). Con jitter de
+    # menos de TOLERANCIA_BPM, debe quedar un único evento de tempo.
+    beats = 0.5 * np.arange(60) + np.random.default_rng(1).normal(0, 0.001, 60)
+    mapa = MapaTempo(np.sort(beats))
+    sync = mapa.sync_track()
+    assert len(sync) == 1
+
+
+def test_sync_track_conserva_cambios_de_tempo_reales():
+    # Un cambio de tempo genuino (60 -> 150 BPM) no debe fusionarse,
+    # aunque esté muy por debajo de TOLERANCIA_BPM en número de tramos.
+    beats = np.concatenate([np.arange(10) * 1.0, 9.0 + np.arange(1, 10) * 0.4])
+    mapa = MapaTempo(beats)
+    sync = mapa.sync_track()
+    bpms = [round(b) for _, b in sync]
+    assert bpms[0] == 60
+    assert bpms[-1] == 150
 
 
 def test_dificultades_reducen_notas():
