@@ -22,8 +22,8 @@ from .audio import (
 )
 from .chartfile import NOMBRE_INSTRUMENTO, generar_chart, generar_song_ini
 from .charting import (
-    DIFICULTADES, construir_mapa_tempo, generar_instrumento,
-    generar_star_power, nombres_de_seccion,
+    DIFICULTADES, clasificar_tempo, construir_mapa_tempo, estadisticas_pista,
+    generar_instrumento, generar_star_power, nombres_de_seccion,
 )
 
 INSTRUMENTOS = ["guitar", "bass", "drums", "keys"]
@@ -33,6 +33,11 @@ GENERADOR = "Clone Hero Converter"
 
 def _limpiar_nombre(texto: str) -> str:
     return re.sub(r'[<>:"/\\|?*]', "", texto).strip() or "Cancion"
+
+
+def _mmss(segundos: float) -> str:
+    m, s = divmod(max(0, int(round(segundos))), 60)
+    return f"{m}:{s:02d}"
 
 
 def _titulo_y_artista_por_defecto(ruta: str) -> tuple[str, str]:
@@ -97,24 +102,50 @@ def convertir(ruta: str, titulo: str, artista: str, album: str,
     # fluctúa, aunque sea ligeramente (lo normal en cualquier grabación no
     # cuantizada a click).
     mapa = construir_mapa_tempo(analisis.tiempos_beat, analisis.bpm)
+    print(f"   ✔ Tempo: {clasificar_tempo(mapa.sync_track())}")
 
     pistas = {}
     star_power = {}
+    # La más alta de las seleccionadas, según el orden real Easy..Expert
+    # (no se puede asumir que `dificultades` venga ya ordenada: en el modo
+    # interactivo de terminal el usuario escribe los números en cualquier
+    # orden).
+    dif_alta = next((d for d in reversed(DIFICULTADES) if d in dificultades),
+                    dificultades[-1])
     for instrumento in instrumentos:
         for dificultad in dificultades:
             notas = generar_instrumento(analisis, instrumento, dificultad, mapa)
             pistas[(instrumento, dificultad)] = notas
             star_power[(instrumento, dificultad)] = generar_star_power(notas)
-        n_expert = len(pistas.get((instrumento, "Expert"),
-                                  pistas[(instrumento, dificultades[-1])]))
-        print(f"   ✔ {NOMBRE_INSTRUMENTO[instrumento]}: "
-              f"{n_expert} notas en la dificultad más alta")
+        stats = estadisticas_pista(pistas[(instrumento, dif_alta)])
+        print(f"   ✔ {NOMBRE_INSTRUMENTO[instrumento]} ({dif_alta}): "
+              f"{stats['total']} notas · {stats['acordes']} acordes · "
+              f"{stats['hopo']} HOPO · {stats['strum']} strum forzado · "
+              f"{stats['sustains']} sustains")
 
     # Estructura de la canción (Intro/Verse/Chorus/.../Outro): navegable
     # desde el editor y punto de referencia visual para el jugador.
     nombres = nombres_de_seccion(len(analisis.limites_secciones))
     secciones = [(mapa.a_ticks(t), nombre)
                  for t, nombre in zip(analisis.limites_secciones, nombres)]
+    # Evita mostrar dos límites que redondeen al mismo mm:ss (p.ej. un
+    # límite espurio a 0.02s justo detrás del inicio en 0.0s).
+    vistos = set()
+    etiquetas_seccion = []
+    for t, nombre in zip(analisis.limites_secciones, nombres):
+        marca = _mmss(t)
+        if marca in vistos:
+            continue
+        vistos.add(marca)
+        etiquetas_seccion.append(f"{nombre} ({marca})")
+    print("   ✔ Estructura: " + " → ".join(etiquetas_seccion))
+
+    for instrumento in instrumentos:
+        frases = star_power.get((instrumento, dif_alta), [])
+        if frases:
+            posiciones = ", ".join(_mmss(mapa.a_segundos(tick)) for tick, _ in frases)
+            print(f"   ✔ Star Power {NOMBRE_INSTRUMENTO[instrumento]}: "
+                  f"{len(frases)} frases en {posiciones}")
 
     carpeta = os.path.join(salida, _limpiar_nombre(f"{artista} - {titulo}"))
     os.makedirs(carpeta, exist_ok=True)

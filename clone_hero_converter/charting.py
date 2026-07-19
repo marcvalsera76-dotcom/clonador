@@ -123,6 +123,23 @@ class MapaTempo:
         tick_crudo = self._ticks_beat[i] + frac * self.resolucion
         return _mejor_snap(tick_crudo, self.resolucion)
 
+    def a_segundos(self, tick: float) -> float:
+        """Inversa de `a_ticks`: tick -> tiempo real (s). Se usa para poder
+        mostrarle al usuario en segundos dónde caen eventos que internamente
+        se manejan en ticks (p.ej. las frases de Star Power)."""
+        tb, tks = self.tiempos_beat, self._ticks_beat
+        if tick <= tks[0]:
+            i = 0
+        elif tick >= tks[-1]:
+            i = len(tks) - 2
+        else:
+            i = int(np.searchsorted(tks, tick, side="right") - 1)
+            i = max(0, min(i, len(tks) - 2))
+        dt_ticks = tks[i + 1] - tks[i]
+        frac = (tick - tks[i]) / dt_ticks if dt_ticks > 1e-6 else 0.0
+        dt_tiempo = tb[i + 1] - tb[i]
+        return float(tb[i] + frac * dt_tiempo)
+
 
 def construir_mapa_tempo(tiempos_beat: np.ndarray, bpm_global: float,
                          resolucion: int = RESOLUCION) -> MapaTempo:
@@ -365,6 +382,41 @@ def nombres_de_seccion(n: int) -> list[str]:
         i += 1
     nombres.append("Outro")
     return nombres[:n]
+
+
+def clasificar_tempo(sync_track: list[tuple[int, float]]) -> str:
+    """Clasifica la estabilidad del tempo detectado en esta canción concreta:
+    grabación con click (BPM prácticamente constante) o interpretación en
+    vivo (el tempo real fluctúa y el MapaTempo variable lo sigue tramo a
+    tramo, en vez de forzar un único BPM para toda la pista)."""
+    if len(sync_track) < 3:
+        return "tempo fijo (pocos beats detectados para evaluar variación)"
+    bpms = np.array([b for _, b in sync_track])
+    variacion = float(np.std(bpms) / max(np.mean(bpms), 1.0))
+    if variacion < 0.01:
+        return f"grabación con click, tempo estable (~{bpms.mean():.1f} BPM constante)"
+    if variacion < 0.04:
+        return (f"tempo casi estable (~{bpms.mean():.1f} BPM) con pequeñas "
+                f"fluctuaciones típicas de interpretación humana")
+    return (f"tempo VARIABLE, sin click (~{bpms.mean():.1f} BPM de media, "
+           f"±{bpms.std():.1f}): probable interpretación en vivo — el mapa "
+           f"de tempo sigue el ritmo real compás a compás")
+
+
+def estadisticas_pista(notas: list[Nota]) -> dict:
+    """Cuenta acordes, HOPO, strums forzados y sustains de una pista ya
+    generada: da una foto real de cómo quedó ESA canción, no una regla
+    genérica."""
+    if not notas:
+        return dict(total=0, acordes=0, hopo=0, strum=0, sustains=0)
+    total = len(notas)
+    return dict(
+        total=total,
+        acordes=sum(1 for n in notas if len(n.carriles) > 1),
+        hopo=sum(1 for n in notas if n.forzado == 5),
+        strum=sum(1 for n in notas if n.forzado == 6),
+        sustains=sum(1 for n in notas if n.longitud > 0),
+    )
 
 
 def generar_instrumento(analisis: AnalisisCancion, instrumento: str,
