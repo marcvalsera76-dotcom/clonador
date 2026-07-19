@@ -118,7 +118,14 @@ class MapaTempo:
 
     def a_ticks(self, t: float) -> int:
         """Tiempo real (s) -> tick, interpolando dentro del tramo de beat
-        correspondiente y ajustando a la subdivisión más cercana."""
+        correspondiente y ajustando a la subdivisión más cercana.
+
+        Se acota a un mínimo de 0: un evento o nota anterior al primer beat
+        detectado (`t < tiempos_beat[0]`, típico de una entrada/pickup antes
+        del primer pulso claro) interpolaría a un tick NEGATIVO. El formato
+        .chart no admite ticks negativos — varios parsers (incluido Clone
+        Hero) descartan el archivo entero, sin aviso, si aparece uno.
+        """
         tb = self.tiempos_beat
         if t <= tb[0]:
             i = 0
@@ -130,7 +137,7 @@ class MapaTempo:
         dt = tb[i + 1] - tb[i]
         frac = (t - tb[i]) / dt if dt > 1e-6 else 0.0
         tick_crudo = self._ticks_beat[i] + frac * self.resolucion
-        return _mejor_snap(tick_crudo, self.resolucion)
+        return max(0, _mejor_snap(tick_crudo, self.resolucion))
 
     def a_segundos(self, tick: float) -> float:
         """Inversa de `a_ticks`: tick -> tiempo real (s). Se usa para poder

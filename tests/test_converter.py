@@ -51,6 +51,18 @@ def test_mapa_tempo_variable_sigue_el_tempo_local():
     assert mapa.a_ticks(3.0) == 576
 
 
+def test_a_ticks_nunca_es_negativo_antes_del_primer_beat():
+    # Si el primer beat detectado no cae en t=0 (lo habitual: la detección
+    # de tempo rara vez marca un beat exacto en el instante 0), un evento o
+    # nota anterior a ese primer beat interpolaría a un tick negativo si no
+    # se acotara. Un tick negativo en notes.chart hace que Clone Hero
+    # descarte la canción entera al escanear la carpeta Songs.
+    beats = np.array([7.0, 7.5, 8.0, 8.5, 9.0])   # primer beat detectado a los 7s
+    mapa = construir_mapa_tempo(beats, bpm_global=120.0)
+    assert mapa.a_ticks(0.0) == 0
+    assert mapa.a_ticks(3.5) == 0   # bastante antes del primer beat también
+
+
 def test_dificultades_reducen_notas():
     onsets, fuerzas, tonos = _onsets_de_ejemplo()
     mapa = _mapa_fijo(120.0)
