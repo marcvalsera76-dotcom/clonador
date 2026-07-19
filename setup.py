@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="clone-hero-converter",
-    version="1.1.0",
+    version="1.2.0",
     description="Convierte MP3/vídeo en charts jugables de Clone Hero",
     author="Marc Valsera",
     url="https://github.com/marcvalsera76-dotcom/clonador",
