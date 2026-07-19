@@ -118,6 +118,23 @@ def test_dificultades_reducen_notas():
     assert cuentas["Easy"] < cuentas["Medium"] < cuentas["Hard"] <= cuentas["Expert"]
 
 
+def test_acordes_alcanzables_en_todas_las_dificultades():
+    # p["acordes"] se compara contra la fuerza normalizada de un onset,
+    # que _onsets_con_fuerza() recorta a un máximo de 1.0 — un umbral por
+    # encima de 1.0 (el bug: Hard/Medium/Easy tenían 1.05-1.10) hace
+    # IMPOSIBLE que esa dificultad genere nunca un acorde. Con la fuerza
+    # máxima alcanzable (1.0) en cada onda, las 4 dificultades deben poder
+    # producir al menos una nota de 2 carriles.
+    onsets = np.arange(30) * 0.5
+    fuerzas = np.full(30, 1.0)   # la fuerza máxima físicamente alcanzable
+    tonos = np.tile(np.arange(12), 3)[:30]
+    mapa = _mapa_fijo(120.0)
+    for dif in DIFICULTADES:
+        notas = generar_pista_melodica(onsets, fuerzas, tonos, mapa, dif)
+        acordes = [n for n in notas if len(n.carriles) > 1]
+        assert acordes, f"{dif} debería poder generar acordes con fuerza máxima"
+
+
 def test_easy_usa_pocos_carriles():
     onsets, fuerzas, tonos = _onsets_de_ejemplo()
     mapa = _mapa_fijo(120.0)

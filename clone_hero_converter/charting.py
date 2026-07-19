@@ -32,11 +32,21 @@ DIFICULTADES = ["Easy", "Medium", "Hard", "Expert"]
 # menos", es Expert con menos densidad de notas. Antes Hard tenía
 # carriles=4 y Medium carriles=3, así que el naranja nunca aparecía en
 # Hard (y el azul casi nunca en Medium).
+#
+# `acordes` se compara contra la fuerza normalizada de cada onset
+# (_onsets_con_fuerza en audio.py), que se recorta explícitamente al rango
+# [0, 1] — 1.0 es el máximo físicamente alcanzable. Con Hard/Medium/Easy en
+# 1.05-1.10 (por encima de ese máximo) era MATEMÁTICAMENTE IMPOSIBLE que
+# esas tres dificultades generasen nunca un acorde; solo Expert (0.95)
+# podía, y solo en el puñado de onsets más fuertes de toda la canción. En
+# Guitar Hero/Clone Hero real los acordes existen en las 4 dificultades,
+# solo que cada vez menos frecuentes cuanto más fácil (Wiki oficial: "los
+# acordes rara vez aparecen en Easy", no "nunca").
 PARAMETROS = {
     "Expert": dict(sep_min=0.100, carriles=5, umbral=0.07, acordes=0.95),
-    "Hard":   dict(sep_min=0.170, carriles=5, umbral=0.18, acordes=1.05),
-    "Medium": dict(sep_min=0.280, carriles=4, umbral=0.28, acordes=1.10),
-    "Easy":   dict(sep_min=0.500, carriles=3, umbral=0.40, acordes=1.10),
+    "Hard":   dict(sep_min=0.170, carriles=5, umbral=0.18, acordes=0.97),
+    "Medium": dict(sep_min=0.280, carriles=4, umbral=0.28, acordes=0.985),
+    "Easy":   dict(sep_min=0.500, carriles=3, umbral=0.40, acordes=0.998),
 }
 
 SUSTAIN_MINIMO = 0.45   # hueco (s) a partir del cual la nota anterior se alarga
