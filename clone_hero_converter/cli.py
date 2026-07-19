@@ -102,7 +102,7 @@ def convertir(ruta: str, titulo: str, artista: str, album: str,
     # fluctúa, aunque sea ligeramente (lo normal en cualquier grabación no
     # cuantizada a click).
     mapa = construir_mapa_tempo(analisis.tiempos_beat, analisis.bpm)
-    print(f"   ✔ Tempo: {clasificar_tempo(mapa.sync_track())}")
+    print(f"   ✔ Tempo: {clasificar_tempo(mapa.bpms_por_tramo())}")
 
     pistas = {}
     star_power = {}

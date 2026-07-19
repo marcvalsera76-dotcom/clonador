@@ -129,16 +129,27 @@ class MapaTempo:
         queda cubierto por ese mismo tempo, igual que en los charts de
         referencia hechos a mano.
         """
+        bpms = self.bpms_por_tramo()
         eventos = []
         bpm_anterior = None
-        for i in range(len(self.tiempos_beat) - 1):
-            dt = self.tiempos_beat[i + 1] - self.tiempos_beat[i]
-            bpm = 60.0 / dt if dt > 1e-6 else 120.0
-            bpm = max(20.0, min(400.0, bpm))
+        for i, bpm in enumerate(bpms):
             if bpm_anterior is None or abs(bpm - bpm_anterior) > TOLERANCIA_BPM:
                 eventos.append((int(self._ticks_beat[i]), bpm))
                 bpm_anterior = bpm
         return eventos
+
+    def bpms_por_tramo(self) -> np.ndarray:
+        """BPM real de cada tramo entre beats consecutivos, SIN fusionar
+        tramos parecidos (a diferencia de sync_track()). clasificar_tempo()
+        necesita esta versión cruda: mide la variación real del tempo para
+        distinguir una grabación con click de una interpretación en vivo,
+        y sync_track() ya ha colapsado el jitter menor que TOLERANCIA_BPM
+        para no hinchar el archivo — medir la variación sobre esa versión
+        ya aplanada haría parecer "estable" casi cualquier canción."""
+        tb = self.tiempos_beat
+        dt = np.diff(tb)
+        bpm = np.where(dt > 1e-6, 60.0 / np.where(dt > 1e-6, dt, 1.0), 120.0)
+        return np.clip(bpm, 20.0, 400.0)
 
     def a_ticks(self, t: float) -> int:
         """Tiempo real (s) -> tick, interpolando dentro del tramo de beat
@@ -424,14 +435,20 @@ def nombres_de_seccion(n: int) -> list[str]:
     return nombres[:n]
 
 
-def clasificar_tempo(sync_track: list[tuple[int, float]]) -> str:
+def clasificar_tempo(bpms_por_tramo: np.ndarray) -> str:
     """Clasifica la estabilidad del tempo detectado en esta canción concreta:
     grabación con click (BPM prácticamente constante) o interpretación en
     vivo (el tempo real fluctúa y el MapaTempo variable lo sigue tramo a
-    tramo, en vez de forzar un único BPM para toda la pista)."""
-    if len(sync_track) < 3:
+    tramo, en vez de forzar un único BPM para toda la pista).
+
+    Recibe el BPM crudo de cada tramo (MapaTempo.bpms_por_tramo()), NO la
+    lista ya fusionada de sync_track(): esa fusión colapsa a propósito el
+    jitter pequeño para no hinchar el archivo, y mediría "casi cero
+    variación" en casi cualquier canción.
+    """
+    bpms = np.asarray(bpms_por_tramo)
+    if len(bpms) < 3:
         return "tempo fijo (pocos beats detectados para evaluar variación)"
-    bpms = np.array([b for _, b in sync_track])
     variacion = float(np.std(bpms) / max(np.mean(bpms), 1.0))
     if variacion < 0.01:
         return f"grabación con click, tempo estable (~{bpms.mean():.1f} BPM constante)"

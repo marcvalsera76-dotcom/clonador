@@ -6,8 +6,9 @@ import numpy as np
 
 from clone_hero_converter.charting import (
     DIFICULTADES, FUERZA_STRUM_FORZADO, HOPO_TICKS, RESOLUCION, MapaTempo,
-    Nota, construir_mapa_tempo, generar_pista_bateria, generar_pista_melodica,
-    generar_star_power, nombres_de_seccion, segundos_a_ticks,
+    Nota, clasificar_tempo, construir_mapa_tempo, generar_pista_bateria,
+    generar_pista_melodica, generar_star_power, nombres_de_seccion,
+    segundos_a_ticks,
 )
 from clone_hero_converter.chartfile import generar_chart, generar_song_ini
 
@@ -63,6 +64,22 @@ def test_a_ticks_nunca_es_negativo_antes_del_primer_beat():
     mapa = construir_mapa_tempo(beats, bpm_global=120.0)
     assert mapa.a_ticks(0.0) == 0
     assert mapa.a_ticks(3.5) == 0   # bastante antes del primer beat también
+
+
+def test_clasificar_tempo_usa_bpm_crudo_no_el_ya_fusionado():
+    # sync_track() fusiona a propósito el jitter pequeño (para no hinchar
+    # el archivo), así que clasificar_tempo() debe recibir siempre
+    # bpms_por_tramo() (el BPM crudo), no sync_track(): si se le pasa la
+    # versión ya fusionada de una canción con tempo estable, puede colapsar
+    # a 1-2 eventos y caer en la rama de "pocos beats detectados", un
+    # mensaje sin sentido para una canción de 200 beats.
+    dt = 60.0 / 128.0
+    jitter = np.random.default_rng(7).normal(0, 0.0012, 200)
+    beats = np.cumsum(np.concatenate([[0.0], dt + jitter]))
+    mapa = MapaTempo(beats)
+
+    assert len(mapa.sync_track()) < 3, "el tempo casi constante debe fusionarse a pocos eventos"
+    assert "estable" in clasificar_tempo(mapa.bpms_por_tramo())
 
 
 def test_sync_track_fusiona_jitter_de_tempo_casi_constante():
