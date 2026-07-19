@@ -76,14 +76,22 @@ def generar_chart(titulo: str, artista: str, album: str, generador: str,
     for (instrumento, dificultad), notas in sorted(pistas.items()):
         if not notas:
             continue
-        lineas = []
+        # Se acumulan como (tick, linea) y se ordenan al final por tick:
+        # las frases de Star Power caen en cualquier punto de la canción,
+        # así que añadirlas después de las notas (todas ya en orden
+        # ascendente) dejaba al final de cada sección líneas "S" con tick
+        # menor que las últimas notas — la sección dejaba de estar en
+        # orden ascendente de tick, que es lo que muchos lectores de
+        # .chart (incluido Clone Hero) asumen para aceptar el archivo.
+        eventos: list[tuple[int, str]] = []
         for nota in sorted(notas, key=lambda n: n.tick):
             for carril in nota.carriles:
-                lineas.append(f"{nota.tick} = N {carril} {nota.longitud}")
+                eventos.append((nota.tick, f"{nota.tick} = N {carril} {nota.longitud}"))
             if nota.forzado is not None:
-                lineas.append(f"{nota.tick} = N {nota.forzado} 0")
+                eventos.append((nota.tick, f"{nota.tick} = N {nota.forzado} 0"))
         for tick, longitud in star_power.get((instrumento, dificultad), []):
-            lineas.append(f"{tick} = S 2 {longitud}")
+            eventos.append((tick, f"{tick} = S 2 {longitud}"))
+        lineas = [linea for _, linea in sorted(eventos, key=lambda e: e[0])]
         nombre = f"{dificultad}{SECCION_INSTRUMENTO[instrumento]}"
         partes.append(_seccion(nombre, lineas))
 

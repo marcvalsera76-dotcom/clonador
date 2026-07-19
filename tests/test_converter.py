@@ -231,6 +231,20 @@ def test_chart_incluye_secciones_y_star_power():
     assert '0 = S 2 192' in chart
 
 
+def test_chart_mantiene_orden_ascendente_de_tick_con_star_power():
+    # Frase de Star Power con tick menor que las últimas notas: si se
+    # escribe después de las notas sin reordenar, la sección queda con
+    # ticks no ascendentes (formato que varios lectores de .chart,
+    # incluido Clone Hero, rechazan sin avisar).
+    pistas = {("guitar", "Expert"): [Nota(0, [0]), Nota(192, [1]), Nota(1000, [2])]}
+    star_power = {("guitar", "Expert"): [(100, 50)]}
+    chart = generar_chart("T", "A", "", "Test", [(0, 120.0)], 0.0,
+                          pistas, star_power=star_power)
+    seccion = chart.split("[ExpertSingle]")[1].split("{")[1].split("}")[0]
+    ticks = [int(linea.split(" = ")[0]) for linea in seccion.strip().splitlines()]
+    assert ticks == sorted(ticks)
+
+
 def test_song_ini():
     ini = generar_song_ini("T", "A", "", "Test", 65.4, ["guitar", "drums"])
     assert "song_length = 65400" in ini
