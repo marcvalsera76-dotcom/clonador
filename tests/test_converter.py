@@ -72,6 +72,19 @@ def test_easy_usa_pocos_carriles():
     assert carriles <= {0, 1, 2}
 
 
+def test_carril_agudo_usa_todos_los_carriles():
+    # Tonos que cubren de forma pareja todo el rango grave->agudo (0-11):
+    # el más agudo debe caer en el ÚLTIMO carril (naranja en Expert), no
+    # solo cuando sea la nota menos frecuente de la canción.
+    onsets = np.arange(60) * 0.15
+    fuerzas = np.full(60, 0.5)
+    tonos = np.tile(np.arange(12), 5)   # reparto uniforme de tonos 0-11
+    mapa = _mapa_fijo(120.0)
+    notas = generar_pista_melodica(onsets, fuerzas, tonos, mapa, "Expert")
+    carriles_usados = {c for n in notas for c in n.carriles}
+    assert carriles_usados == {0, 1, 2, 3, 4}, "debe usar los 5 carriles, incluido el naranja"
+
+
 def test_bateria_bandas():
     onsets = np.arange(40) * 0.25
     fuerzas = np.full(40, 0.6)

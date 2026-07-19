@@ -141,23 +141,28 @@ def construir_mapa_tempo(tiempos_beat: np.ndarray, bpm_global: float,
 
 
 def _asignar_carriles(tonos: np.ndarray, n_carriles: int) -> np.ndarray:
-    """Reparte los cromas (0-11) entre los carriles disponibles.
+    """Reparte los cromas (0-11) entre los carriles disponibles por ALTURA.
 
-    Se ordenan los cromas presentes en la canción por altura y se dividen en
-    n_carriles grupos de uso equilibrado, de modo que notas más graves caigan
-    en carriles más a la izquierda.
+    Antes se repartía por percentil de frecuencia (cuántas veces sonaba
+    cada tono), no por su altura real: el carril más agudo (naranja en
+    Expert) solo recibía el tono menos frecuente de toda la canción, así
+    que si esa nota apenas sonaba, el naranja casi no aparecía en el
+    chart. Ahora la posición se calcula directamente por altura dentro
+    del rango de tonos presentes en la canción (el más grave -> carril 0,
+    el más agudo -> el último carril), que es como se reparten los
+    carriles en un chart hecho a mano: los agudos van a la derecha.
     """
     if len(tonos) == 0:
         return np.array([], dtype=int)
-    valores, cuentas = np.unique(tonos, return_counts=True)
-    orden = np.argsort(valores)          # por altura de croma
-    valores, cuentas = valores[orden], cuentas[orden]
-    acumulado = np.cumsum(cuentas) / cuentas.sum()
-    inicio = acumulado - cuentas / cuentas.sum()
-    mapa = {}
-    for v, ini, fin in zip(valores, inicio, acumulado):
-        centro = (ini + fin) / 2          # punto medio del intervalo del tono
-        mapa[int(v)] = min(int(centro * n_carriles), n_carriles - 1)
+    valores = np.unique(tonos)
+    if len(valores) == 1:
+        return np.zeros(len(tonos), dtype=int)
+    minimo, maximo = int(valores.min()), int(valores.max())
+    rango = maximo - minimo
+    mapa = {
+        int(v): min(int((v - minimo) / rango * n_carriles), n_carriles - 1)
+        for v in valores
+    }
     return np.array([mapa[int(t)] for t in tonos], dtype=int)
 
 
