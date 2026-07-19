@@ -59,6 +59,17 @@ def es_formato_soportado(ruta: str) -> bool:
 
 _RUTA_FFMPEG_CACHE: str | None = None
 
+# Ubicaciones fijas donde buscar un ffmpeg instalado manualmente, sin tocar
+# el PATH del sistema (editar el PATH en Windows falla a menudo: hace falta
+# reiniciar la terminal, hay líos de usuario/sistema, permisos...). Si el
+# usuario copia la carpeta que descarga de gyan.dev a C:\ffmpeg tal cual,
+# el ejecutable cae en una de estas rutas y el programa lo encuentra solo.
+_RUTAS_FFMPEG_MANUAL = [
+    r"C:\ffmpeg\bin\ffmpeg.exe",
+    r"C:\ffmpeg\ffmpeg.exe",
+    os.path.join(os.path.expanduser("~"), "ffmpeg", "bin", "ffmpeg.exe"),
+]
+
 
 def _ruta_ffmpeg() -> str:
     """Ruta absoluta al ejecutable de ffmpeg.
@@ -70,19 +81,32 @@ def _ruta_ffmpeg() -> str:
     entonces falla con WinError 2 aunque el binario ya esté descargado.
     Pedir la ruta absoluta directamente evita depender del PATH.
 
-    Si ya hay un `ffmpeg` instalado y en el PATH del sistema, se usa ese
-    (evita descargas innecesarias). Si no, se delega en static-ffmpeg; si
-    esa descarga falla, se lanza el error real en vez de esconderlo detrás
-    de un "ffmpeg" que fallará exactamente igual.
+    Orden de búsqueda:
+    1. Variable de entorno CLONE_HERO_FFMPEG (ruta directa al .exe).
+    2. `ffmpeg` ya en el PATH del sistema.
+    3. Ubicaciones fijas típicas (C:\\ffmpeg\\bin\\ffmpeg.exe...): evita
+       pedirle al usuario que edite el PATH, un paso que falla mucho.
+    4. Descarga automática vía static-ffmpeg; si falla, se lanza el error
+       real en vez de esconderlo detrás de un "ffmpeg" que fallará igual.
     """
     global _RUTA_FFMPEG_CACHE
     if _RUTA_FFMPEG_CACHE:
         return _RUTA_FFMPEG_CACHE
 
+    manual = os.environ.get("CLONE_HERO_FFMPEG")
+    if manual and os.path.exists(manual):
+        _RUTA_FFMPEG_CACHE = manual
+        return manual
+
     encontrado = shutil.which("ffmpeg")
     if encontrado:
         _RUTA_FFMPEG_CACHE = encontrado
         return encontrado
+
+    for candidata in _RUTAS_FFMPEG_MANUAL:
+        if os.path.exists(candidata):
+            _RUTA_FFMPEG_CACHE = candidata
+            return candidata
 
     try:
         import static_ffmpeg.run
@@ -91,10 +115,11 @@ def _ruta_ffmpeg() -> str:
         raise AudioError(
             "No se encontró ffmpeg y no se pudo descargar automáticamente "
             f"({type(e).__name__}: {e}).\n"
-            "Comprueba tu conexión a internet o que el antivirus/firewall no "
-            "esté bloqueando la descarga desde github.com. Alternativa: "
-            "instala ffmpeg manualmente desde https://www.gyan.dev/ffmpeg/builds/ "
-            "y añádelo al PATH del sistema."
+            "Descarga ffmpeg de https://www.gyan.dev/ffmpeg/builds/ "
+            "('ffmpeg-release-essentials.zip'), extráelo y renombra o mueve "
+            r"la carpeta extraída para que quede como C:\ffmpeg (de modo que "
+            r"exista C:\ffmpeg\bin\ffmpeg.exe). El programa lo detectará "
+            "solo, sin tocar el PATH."
         )
     if not ffmpeg_path or not os.path.exists(ffmpeg_path):
         raise AudioError(
