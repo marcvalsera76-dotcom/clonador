@@ -102,7 +102,7 @@ def test_hopo_forzado_en_paso_rapido_de_traste():
 
 def test_strum_forzado_en_ataque_percusivo():
     onsets = np.array([0.0, 0.12])
-    fuerzas = np.array([0.3, 0.78])   # 2ª nota: fuerte pero sin llegar a acorde (umbral 0.80)
+    fuerzas = np.array([0.3, 0.78])   # 2ª nota: fuerte pero sin llegar a acorde (umbral 0.95)
     tonos = np.array([0, 4])
     mapa = _mapa_fijo(120.0)
     notas = generar_pista_melodica(onsets, fuerzas, tonos, mapa, "Expert")
@@ -113,7 +113,7 @@ def test_strum_forzado_en_ataque_percusivo():
 
 def test_acorde_nunca_es_hopo():
     onsets = np.array([0.0, 0.12])
-    fuerzas = np.array([0.3, 0.97])   # 2ª nota por encima de umbral "acordes" Expert (0.95)
+    fuerzas = np.array([0.3, 0.97])   # 2ª nota por encima del umbral "acordes" Expert (0.95)
     tonos = np.array([0, 4])
     mapa = _mapa_fijo(120.0)
     notas = generar_pista_melodica(onsets, fuerzas, tonos, mapa, "Expert")
