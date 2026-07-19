@@ -99,11 +99,20 @@ class MapaTempo:
 
     def sync_track(self) -> list[tuple[int, float]]:
         """Lista (tick, bpm) — un evento B por cada tramo entre beats,
-        lista para escribirse tal cual en [SyncTrack]."""
+        lista para escribirse tal cual en [SyncTrack].
+
+        Cada BPM se acota a un rango razonable (20-400): un tramo con un
+        hueco anómalo entre beats (silencio, sección sin pulso claro que
+        confunde al detector) puede dar un BPM casi 0 o disparatadamente
+        alto. Un evento B así de extremo no es solo "feo": algunos charts
+        con BPM degenerados no llegan a listarse en Clone Hero al
+        escanear la carpeta de Songs.
+        """
         eventos = []
         for i in range(len(self.tiempos_beat) - 1):
             dt = self.tiempos_beat[i + 1] - self.tiempos_beat[i]
             bpm = 60.0 / dt if dt > 1e-6 else 120.0
+            bpm = max(20.0, min(400.0, bpm))
             eventos.append((int(self._ticks_beat[i]), bpm))
         return eventos
 
