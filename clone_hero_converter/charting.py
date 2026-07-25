@@ -244,19 +244,40 @@ def _asignar_carriles(tonos: np.ndarray, n_carriles: int) -> np.ndarray:
     return np.array([mapa[int(t)] for t in tonos], dtype=int)
 
 
+MARGEN_REEMPLAZO = 1.5        # normal: el retador debe sonar bastante más fuerte
+MARGEN_REEMPLAZO_CON_CAMBIO = 0.85  # con cambio de tono: puede ser algo más flojo
+
+
 def _reducir(onsets: np.ndarray, fuerzas: np.ndarray, extras: np.ndarray,
-             sep_min: float, umbral: float):
-    """Filtra onsets débiles y demasiado próximos entre sí."""
+             sep_min: float, umbral: float,
+             favorecer_cambio_tono: bool = False):
+    """Filtra onsets débiles y demasiado próximos entre sí.
+
+    `favorecer_cambio_tono` (solo tiene sentido si `extras` son tonos, no
+    bandas de batería): cuando dos onsets caen dentro de la misma ventana
+    `sep_min`, un patrón rítmico fuerte y repetitivo (siempre la misma
+    nota — p.ej. una guitarra rítmica marcando el mismo acorde una y otra
+    vez) suena más fuerte y regular que una línea melódica con movimiento,
+    así que por pura intensidad el rítmico siempre gana la competición y
+    la melodía real queda enterrada. Con esto activado, un onset que
+    cambia de tono respecto al último conservado solo necesita superar
+    MARGEN_REEMPLAZO_CON_CAMBIO (puede sonar hasta un poco más flojo y aun
+    así quedarse con la plaza) en vez del margen normal, mucho más
+    exigente, que sí sigue aplicando entre dos onsets de la misma altura.
+    """
     seleccion_t, seleccion_f, seleccion_e = [], [], []
     ultimo = -1e9
     for t, f, e in zip(onsets, fuerzas, extras):
         if f < umbral:
             continue
         if t - ultimo < sep_min:
-            # Si el nuevo onset es claramente más fuerte, sustituye al anterior
-            if seleccion_f and f > seleccion_f[-1] * 1.5:
-                seleccion_t[-1], seleccion_f[-1], seleccion_e[-1] = t, f, e
-                ultimo = t
+            if seleccion_f:
+                cambia_tono = (favorecer_cambio_tono
+                               and seleccion_e and e != seleccion_e[-1])
+                margen = MARGEN_REEMPLAZO_CON_CAMBIO if cambia_tono else MARGEN_REEMPLAZO
+                if f > seleccion_f[-1] * margen:
+                    seleccion_t[-1], seleccion_f[-1], seleccion_e[-1] = t, f, e
+                    ultimo = t
             continue
         seleccion_t.append(t)
         seleccion_f.append(f)
@@ -287,7 +308,8 @@ def generar_pista_melodica(onsets: np.ndarray, fuerzas: np.ndarray,
                            dificultad: str) -> list[Nota]:
     """Genera una pista de guitarra/bajo/teclado para una dificultad."""
     p = PARAMETROS[dificultad]
-    t, f, tono = _reducir(onsets, fuerzas, tonos, p["sep_min"], p["umbral"])
+    t, f, tono = _reducir(onsets, fuerzas, tonos, p["sep_min"], p["umbral"],
+                          favorecer_cambio_tono=True)
     if len(t) == 0:
         return []
 

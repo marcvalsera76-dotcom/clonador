@@ -6,9 +6,9 @@ import numpy as np
 
 from clone_hero_converter.charting import (
     DIFICULTADES, FUERZA_STRUM_FORZADO, HOPO_TICKS, RESOLUCION, MapaTempo,
-    Nota, clasificar_tempo, construir_mapa_tempo, generar_pista_bateria,
-    generar_pista_melodica, generar_star_power, nombres_de_seccion,
-    segundos_a_ticks,
+    Nota, _reducir, clasificar_tempo, construir_mapa_tempo,
+    generar_pista_bateria, generar_pista_melodica, generar_star_power,
+    nombres_de_seccion, segundos_a_ticks,
 )
 from clone_hero_converter.chartfile import generar_chart, generar_song_ini
 
@@ -133,6 +133,49 @@ def test_acordes_alcanzables_en_todas_las_dificultades():
         notas = generar_pista_melodica(onsets, fuerzas, tonos, mapa, dif)
         acordes = [n for n in notas if len(n.carriles) > 1]
         assert acordes, f"{dif} debería poder generar acordes con fuerza máxima"
+
+
+def test_favorecer_cambio_tono_deja_ganar_a_una_nota_melodica_mas_floja():
+    # Patrón típico "pam pam pam pam": un onset fuerte y repetitivo (mismo
+    # tono) puede enterrar una nota melódica algo más floja pero con
+    # movimiento real de tono. Sin favorecer_cambio_tono, solo gana el más
+    # fuerte (comportamiento de batería, sin cambiar).
+    onsets = np.array([0.0, 0.05])
+    fuerzas = np.array([1.0, 0.9])   # la segunda es un 10% más floja
+    tonos = np.array([5, 7])         # pero cambia de tono
+
+    t, f, e = _reducir(onsets, fuerzas, tonos, sep_min=0.1, umbral=0.05,
+                       favorecer_cambio_tono=False)
+    assert list(e) == [5], "sin el favor, debe ganar el más fuerte (el repetitivo)"
+
+    t, f, e = _reducir(onsets, fuerzas, tonos, sep_min=0.1, umbral=0.05,
+                       favorecer_cambio_tono=True)
+    assert list(e) == [7], "con el favor, la nota que cambia de tono debe ganar aunque sea algo más floja"
+    assert f[0] == 0.9, "la fuerza guardada debe ser la real, no la bonificada"
+
+
+def test_favorecer_cambio_tono_no_deja_ganar_a_algo_mucho_mas_flojo():
+    # El favor no debe convertirse en "cualquier cambio de tono gana": si
+    # la nota más floja es MUCHO más floja (por debajo del margen
+    # reducido), sigue perdiendo.
+    onsets = np.array([0.0, 0.05])
+    fuerzas = np.array([1.0, 0.5])   # mitad de fuerte
+    tonos = np.array([5, 7])
+    t, f, e = _reducir(onsets, fuerzas, tonos, sep_min=0.1, umbral=0.05,
+                       favorecer_cambio_tono=True)
+    assert list(e) == [5]
+
+
+def test_favorecer_cambio_tono_no_afecta_a_bateria():
+    # generar_pista_bateria llama a _reducir sin favorecer_cambio_tono: un
+    # patrón repetitivo de la misma banda (p.ej. bombo a tempo) no debe
+    # verse alterado por este cambio.
+    onsets = np.arange(20) * 0.15
+    fuerzas = np.full(20, 0.8)
+    bandas = np.zeros(20, dtype=int)   # siempre la misma banda (bombo)
+    mapa = _mapa_fijo(120.0)
+    notas = generar_pista_bateria(onsets, fuerzas, bandas, mapa, "Expert")
+    assert notas, "debe seguir generando notas de bombo repetidas con normalidad"
 
 
 def test_easy_usa_pocos_carriles():
