@@ -43,12 +43,38 @@ def test_mapa_tempo_variable_sigue_el_tempo_local():
     # Tramo 1: 60 BPM (1 beat/segundo) durante 4 beats, luego 120 BPM.
     beats = np.array([0.0, 1.0, 2.0, 3.0, 3.5, 4.0, 4.5])
     mapa = construir_mapa_tempo(beats, bpm_global=90.0)
+    # a_ticks() sigue el tempo real tramo a tramo (independiente de cómo se
+    # simplifique el sync_track para escritura): el beat 3 (tick=576) debe
+    # seguir siendo tick 576 exacto.
+    assert mapa.a_ticks(3.0) == 576
+
+
+def test_sync_track_no_emite_un_evento_por_cada_beat():
+    # Micro-fluctuaciones de tempo típicas de cualquier grabación real (aquí
+    # entre 119 y 121 BPM, dentro de la tolerancia): no deben generar un
+    # evento B distinto por cada beat, solo cuando el cambio es real.
+    rng = np.random.default_rng(0)
+    beats = np.cumsum(np.concatenate([[0.0], 60.0 / rng.uniform(119, 121, 40)]))
+    mapa = construir_mapa_tempo(beats, bpm_global=120.0)
+    sync = mapa.sync_track()
+    assert len(sync) < 5, "las micro-fluctuaciones no deben generar un evento por beat"
+
+
+def test_sync_track_sigue_capturando_cambios_reales_de_tempo():
+    # 20 beats a 60 BPM seguidos de 20 a 120 BPM: un cambio de tempo real y
+    # sostenido (no una oscilación puntual de detección) sí debe generar un
+    # nuevo evento B, incluso con el suavizado de la mediana móvil.
+    beats = np.concatenate([
+        np.arange(20) * 1.0,                       # 60 BPM
+        20.0 + np.arange(20) * 0.5,                 # 120 BPM
+    ])
+    mapa = construir_mapa_tempo(beats, bpm_global=90.0)
     sync = mapa.sync_track()
     bpms = [round(b) for _, b in sync]
-    assert bpms[:3] == [60, 60, 60]   # tramos lentos
-    assert bpms[-1] == 120            # tramo rápido al final
-    # El tick del beat 3 (tick=576) debe seguir siendo tick 576 exacto
-    assert mapa.a_ticks(3.0) == 576
+    assert bpms[0] == 60
+    assert bpms[-1] == 120
+    assert len(sync) <= 4   # un par de eventos, no uno por beat (38 tramos)
+    assert len(sync) == 2   # un evento por cada tempo distinto, no por beat
 
 
 def test_a_ticks_nunca_es_negativo_antes_del_primer_beat():

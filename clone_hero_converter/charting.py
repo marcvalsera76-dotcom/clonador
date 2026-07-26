@@ -97,23 +97,59 @@ class MapaTempo:
             raise ValueError("Se necesitan al menos 2 beats para un mapa de tempo")
         self._ticks_beat = np.arange(len(self.tiempos_beat)) * self.resolucion
 
-    def sync_track(self) -> list[tuple[int, float]]:
-        """Lista (tick, bpm) — un evento B por cada tramo entre beats,
-        lista para escribirse tal cual en [SyncTrack].
+    def sync_track(self, tolerancia_bpm: float = 4.0,
+                   ventana_suavizado: int = 8) -> list[tuple[int, float]]:
+        """Lista (tick, bpm) para escribir en [SyncTrack]: un evento B solo
+        cuando el tempo cambia de verdad, no uno por cada beat detectado.
 
-        Cada BPM se acota a un rango razonable (20-400): un tramo con un
-        hueco anómalo entre beats (silencio, sección sin pulso claro que
-        confunde al detector) puede dar un BPM casi 0 o disparatadamente
-        alto. Un evento B así de extremo no es solo "feo": algunos charts
-        con BPM degenerados no llegan a listarse en Clone Hero al
-        escanear la carpeta de Songs.
+        El BPM instantáneo calculado beat a beat OSCILA varios BPM de un
+        beat al siguiente por simple imprecisión de frame del detector
+        (comprobado con canciones reales: 143→161→152→161→172... aunque el
+        tempo real de la zona sea estable), así que comparar cada tramo solo
+        con el anterior no basta: el ruido nunca queda por debajo de la
+        tolerancia porque va "dando saltos", no cambiando gradualmente.
+        Por eso primero se suaviza con una mediana móvil (tempo real de la
+        zona, sin el ruido de detección) y solo se emite un evento B cuando
+        ese valor suavizado cambia de forma perceptible.
+
+        Un [SyncTrack] con un evento por beat (o por cada micro-oscilación)
+        es válido según el formato .chart, pero nada habitual en charts
+        reales, y puede hacer que el juego tarde mucho o se quede colgado
+        al cargar la canción para jugar.
+
+        La precisión de la colocación de cada nota (`a_ticks`) no se ve
+        afectada por esta simplificación: sigue interpolando con el tempo
+        real tramo a tramo a partir de `tiempos_beat`, no de esta lista.
         """
+        tb = self.tiempos_beat
+        n = len(tb) - 1
+        if n <= 0:
+            return [(0, 120.0)]
+
+        crudos = np.array([
+            60.0 / (tb[i + 1] - tb[i]) if tb[i + 1] - tb[i] > 1e-6 else 120.0
+            for i in range(n)
+        ])
+        # Acota cada BPM a un rango razonable (20-400): un hueco anómalo
+        # entre beats (silencio, sección sin pulso claro) puede dar un BPM
+        # casi 0 o disparatado. Un evento B así de extremo no es solo
+        # "feo": algunos charts con BPM degenerados no llegan a listarse
+        # en Clone Hero al escanear la carpeta de Songs.
+        crudos = np.clip(crudos, 20.0, 400.0)
+
+        medio = max(1, ventana_suavizado // 2)
+        suaves = np.array([
+            np.median(crudos[max(0, i - medio):min(n, i + medio + 1)])
+            for i in range(n)
+        ])
+
         eventos = []
-        for i in range(len(self.tiempos_beat) - 1):
-            dt = self.tiempos_beat[i + 1] - self.tiempos_beat[i]
-            bpm = 60.0 / dt if dt > 1e-6 else 120.0
-            bpm = max(20.0, min(400.0, bpm))
-            eventos.append((int(self._ticks_beat[i]), bpm))
+        bpm_anterior = None
+        for i in range(n):
+            bpm = float(suaves[i])
+            if bpm_anterior is None or abs(bpm - bpm_anterior) > tolerancia_bpm:
+                eventos.append((int(self._ticks_beat[i]), bpm))
+                bpm_anterior = bpm
         return eventos
 
     def a_ticks(self, t: float) -> int:
