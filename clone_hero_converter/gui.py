@@ -53,6 +53,32 @@ def detectar_carpeta_songs() -> str:
     for ruta in candidatas:
         if os.path.isdir(ruta):
             return ruta
+
+    # Las instalaciones portátiles ("Standalone", descargadas y
+    # descomprimidas a mano en cualquier sitio, p.ej. el Escritorio) no
+    # siguen ninguna de esas rutas fijas: crean su propia carpeta
+    # <lo-que-sea>/PlayerData/Songs donde el usuario haya puesto el
+    # ejecutable. En vez de adivinar el nombre de esa carpeta, se busca
+    # cualquier "PlayerData/Songs" hasta 3 niveles bajo unas pocas raíces
+    # típicas (carpeta personal, Escritorio/Desktop, Descargas/Downloads).
+    raices = [inicio]
+    for nombre in ("Desktop", "Escritorio", "Downloads", "Descargas"):
+        raices.append(os.path.join(inicio, nombre))
+        raices.append(os.path.join(inicio, "OneDrive", nombre))
+
+    profundidad_maxima = 3
+    for raiz in raices:
+        if not os.path.isdir(raiz):
+            continue
+        nivel_raiz = raiz.rstrip(os.sep).count(os.sep)
+        for actual, subcarpetas, _ in os.walk(raiz):
+            if actual.rstrip(os.sep).count(os.sep) - nivel_raiz >= profundidad_maxima:
+                subcarpetas[:] = []
+                continue
+            if os.path.basename(actual) == "PlayerData":
+                candidata = os.path.join(actual, "Songs")
+                if os.path.isdir(candidata):
+                    return candidata
     return ""
 
 
