@@ -135,8 +135,21 @@ def convertir(ruta: str, titulo: str, artista: str, album: str,
     # le tocara en el ciclo, en vez de "Outro".
     limites_inicio = analisis.limites_secciones[:-1]
     nombres = nombres_de_seccion(len(limites_inicio))
-    secciones = [(mapa.a_ticks(t), nombre)
-                 for t, nombre in zip(limites_inicio, nombres)]
+    # Dos límites detectados por separado (p.ej. 0.0s y un límite espurio
+    # a 0.02s justo detrás) pueden convertirse al MISMO tick al redondear
+    # (mapa.a_ticks() ajusta a la subdivisión más fina de la rejilla), y
+    # sin esta comprobación quedarían dos eventos "E" distintos en el
+    # mismo instante exacto (p.ej. "0 = E section Intro" seguido de
+    # "0 = E section Verse"): redundante, aunque no rompe el archivo. Se
+    # descarta cualquier límite que caiga en un tick ya usado.
+    secciones = []
+    ticks_vistos = set()
+    for t, nombre in zip(limites_inicio, nombres):
+        tick = mapa.a_ticks(t)
+        if tick in ticks_vistos:
+            continue
+        ticks_vistos.add(tick)
+        secciones.append((tick, nombre))
     # Evita mostrar dos límites que redondeen al mismo mm:ss (p.ej. un
     # límite espurio a 0.02s justo detrás del inicio en 0.0s).
     vistos = set()
