@@ -303,11 +303,33 @@ def _evitar_repeticion(carriles: np.ndarray, n_carriles: int) -> np.ndarray:
     return resultado
 
 
+def _excluir_antes_del_primer_beat(onsets: np.ndarray, fuerzas: np.ndarray,
+                                   extra: np.ndarray, mapa: MapaTempo):
+    """Descarta los onsets anteriores al primer beat detectado.
+
+    MapaTempo no tiene una referencia de tempo fiable antes de
+    tiempos_beat[0]: mapa.a_ticks() interpola ahí con un tramo
+    extrapolado hacia atrás que da un tick crudo NEGATIVO, y ese
+    negativo se acota a 0 (ver a_ticks) para que el .chart no lo
+    rechace. El problema es que TODOS los onsets antes del primer beat
+    acotan al mismo 0, sin importar lo separados que estén entre sí en
+    tiempo real — se ha confirmado un caso real con más de 15 notas de
+    una misma pista apiladas exactamente en el tick 0, un caso
+    degenerado (decenas de "notas" simultáneas en el mismo instante)
+    que puede colgar el juego al intentar mostrarlas todas de golpe.
+    Sin una referencia de tempo fiable ahí de todos modos, es mejor
+    perder ese puñado de onsets tempranos que arriesgarse a la pila.
+    """
+    valido = onsets >= mapa.tiempos_beat[0]
+    return onsets[valido], fuerzas[valido], extra[valido]
+
+
 def generar_pista_melodica(onsets: np.ndarray, fuerzas: np.ndarray,
                            tonos: np.ndarray, mapa: MapaTempo,
                            dificultad: str) -> list[Nota]:
     """Genera una pista de guitarra/bajo/teclado para una dificultad."""
     p = PARAMETROS[dificultad]
+    onsets, fuerzas, tonos = _excluir_antes_del_primer_beat(onsets, fuerzas, tonos, mapa)
     t, f, tono = _reducir(onsets, fuerzas, tonos, p["sep_min"], p["umbral"],
                           favorecer_cambio_tono=True)
     if len(t) == 0:
@@ -377,6 +399,7 @@ def generar_pista_bateria(onsets: np.ndarray, fuerzas: np.ndarray,
     2=amarillo (charles), 3=azul (tom), 4=verde (crash).
     """
     p = PARAMETROS[dificultad]
+    onsets, fuerzas, bandas = _excluir_antes_del_primer_beat(onsets, fuerzas, bandas, mapa)
     t, f, banda = _reducir(onsets, fuerzas, bandas, p["sep_min"], p["umbral"])
     if len(t) == 0:
         return []

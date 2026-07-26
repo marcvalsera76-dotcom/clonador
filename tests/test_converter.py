@@ -66,6 +66,24 @@ def test_a_ticks_nunca_es_negativo_antes_del_primer_beat():
     assert mapa.a_ticks(3.5) == 0   # bastante antes del primer beat también
 
 
+def test_no_apila_notas_en_tick_0_por_onsets_antes_del_primer_beat():
+    # Confirmado en un notes.chart real: una intro sin pulso claro genera
+    # varios onsets antes de que librosa detecte el primer beat fiable.
+    # Como TODOS esos onsets interpolan a un tick negativo que a_ticks()
+    # acota a 0 (ver test anterior), sin filtrarlos antes se apilaban
+    # más de 15 notas de la misma pista exactamente en el tick 0 — un
+    # caso degenerado que puede colgar el juego.
+    beats = np.array([7.0, 7.5, 8.0, 8.5, 9.0])   # primer beat a los 7s
+    mapa = construir_mapa_tempo(beats, bpm_global=120.0)
+    onsets = np.array([0.5, 1.2, 2.0, 2.8, 3.6, 4.4, 5.2, 6.0, 6.8,  # antes del primer beat
+                       7.2, 7.6, 8.0, 8.4])                          # después
+    fuerzas = np.full(len(onsets), 0.9)
+    tonos = np.tile(np.arange(12), 2)[:len(onsets)]
+    notas = generar_pista_melodica(onsets, fuerzas, tonos, mapa, "Expert")
+    en_tick_0 = [n for n in notas if n.tick == 0]
+    assert len(en_tick_0) <= 1, "no debe apilar varios onsets tempranos en el mismo tick 0"
+
+
 def test_clasificar_tempo_usa_bpm_crudo_no_el_ya_fusionado():
     # sync_track() fusiona a propósito el jitter pequeño (para no hinchar
     # el archivo), así que clasificar_tempo() debe recibir siempre
