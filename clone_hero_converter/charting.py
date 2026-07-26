@@ -15,6 +15,9 @@ from .audio import AnalisisCancion
 
 RESOLUCION = 192  # ticks por negra (estándar de .chart)
 
+TOLERANCIA_BPM = 2.0  # variación de BPM entre tramos por debajo de la cual
+                      # se considera el mismo tempo (ver MapaTempo.sync_track)
+
 DIFICULTADES = ["Easy", "Medium", "Hard", "Expert"]
 
 # Parámetros de reducción por dificultad:
@@ -22,11 +25,28 @@ DIFICULTADES = ["Easy", "Medium", "Hard", "Expert"]
 #   carriles: número de carriles usados (desde el verde)
 #   umbral: fuerza mínima del onset para conservar la nota
 #   acordes: probabilidad-fuerza a partir de la cual una nota se vuelve acorde
+#
+# El número de carriles sigue la convención estándar de Guitar Hero/Clone
+# Hero: Easy usa 3 (verde/rojo/amarillo), Medium 4 (+ azul), y Hard ya usa
+# los 5 igual que Expert (+ naranja) — Hard NO es "Expert con un carril
+# menos", es Expert con menos densidad de notas. Antes Hard tenía
+# carriles=4 y Medium carriles=3, así que el naranja nunca aparecía en
+# Hard (y el azul casi nunca en Medium).
+#
+# `acordes` se compara contra la fuerza normalizada de cada onset
+# (_onsets_con_fuerza en audio.py), que se recorta explícitamente al rango
+# [0, 1] — 1.0 es el máximo físicamente alcanzable. Con Hard/Medium/Easy en
+# 1.05-1.10 (por encima de ese máximo) era MATEMÁTICAMENTE IMPOSIBLE que
+# esas tres dificultades generasen nunca un acorde; solo Expert (0.95)
+# podía, y solo en el puñado de onsets más fuertes de toda la canción. En
+# Guitar Hero/Clone Hero real los acordes existen en las 4 dificultades,
+# solo que cada vez menos frecuentes cuanto más fácil (Wiki oficial: "los
+# acordes rara vez aparecen en Easy", no "nunca").
 PARAMETROS = {
     "Expert": dict(sep_min=0.100, carriles=5, umbral=0.07, acordes=0.95),
-    "Hard":   dict(sep_min=0.170, carriles=4, umbral=0.18, acordes=1.05),
-    "Medium": dict(sep_min=0.280, carriles=3, umbral=0.28, acordes=1.10),
-    "Easy":   dict(sep_min=0.500, carriles=3, umbral=0.40, acordes=1.10),
+    "Hard":   dict(sep_min=0.170, carriles=5, umbral=0.18, acordes=0.97),
+    "Medium": dict(sep_min=0.280, carriles=4, umbral=0.28, acordes=0.985),
+    "Easy":   dict(sep_min=0.500, carriles=3, umbral=0.40, acordes=0.998),
 }
 
 SUSTAIN_MINIMO = 0.45   # hueco (s) a partir del cual la nota anterior se alarga
@@ -97,60 +117,77 @@ class MapaTempo:
             raise ValueError("Se necesitan al menos 2 beats para un mapa de tempo")
         self._ticks_beat = np.arange(len(self.tiempos_beat)) * self.resolucion
 
-    def sync_track(self, tolerancia_bpm: float = 4.0,
-                   ventana_suavizado: int = 8) -> list[tuple[int, float]]:
-        """Lista (tick, bpm) para escribir en [SyncTrack]: un evento B solo
-        cuando el tempo cambia de verdad, no uno por cada beat detectado.
+    def sync_track(self) -> list[tuple[int, float]]:
+        """Lista (tick, bpm) — un evento B por cada tramo en que el tempo
+        cambia de verdad, lista para escribirse tal cual en [SyncTrack].
 
-        El BPM instantáneo calculado beat a beat OSCILA varios BPM de un
-        beat al siguiente por simple imprecisión de frame del detector
-        (comprobado con canciones reales: 143→161→152→161→172... aunque el
-        tempo real de la zona sea estable), así que comparar cada tramo solo
-        con el anterior no basta: el ruido nunca queda por debajo de la
-        tolerancia porque va "dando saltos", no cambiando gradualmente.
-        Por eso primero se suaviza con una mediana móvil (tempo real de la
-        zona, sin el ruido de detección) y solo se emite un evento B cuando
-        ese valor suavizado cambia de forma perceptible.
+        Cada BPM se acota a un rango razonable (20-400): un tramo con un
+        hueco anómalo entre beats (silencio, sección sin pulso claro que
+        confunde al detector) puede dar un BPM casi 0 o disparatadamente
+        alto. Un evento B así de extremo no es solo "feo": algunos charts
+        con BPM degenerados no llegan a listarse en Clone Hero al
+        escanear la carpeta de Songs.
 
-        Un [SyncTrack] con un evento por beat (o por cada micro-oscilación)
-        es válido según el formato .chart, pero nada habitual en charts
-        reales, y puede hacer que el juego tarde mucho o se quede colgado
-        al cargar la canción para jugar.
+        No se emite un evento por cada beat: la detección de tempo tiene
+        "temblor" (jitter) de un beat a otro incluso en una canción de
+        tempo constante, así que escribir el BPM crudo de cada tramo deja
+        un SyncTrack con miles de eventos casi idénticos (p.ej. 143.5,
+        143.6, 143.4...) para una sola canción larga. Eso hincha mucho el
+        archivo y puede ser parte de por qué Clone Hero se atasca al
+        cargarlo. Solo se escribe un evento nuevo cuando el BPM se aparta
+        más de TOLERANCIA_BPM del último escrito; el resto del tramo
+        queda cubierto por ese mismo tempo, igual que en los charts de
+        referencia hechos a mano.
 
-        La precisión de la colocación de cada nota (`a_ticks`) no se ve
-        afectada por esta simplificación: sigue interpolando con el tempo
-        real tramo a tramo a partir de `tiempos_beat`, no de esta lista.
+        Antes de comparar contra TOLERANCIA_BPM, el BPM crudo se suaviza
+        con una mediana móvil. Comprobado con canciones reales: el BPM
+        instantáneo no solo tiembla un poco, sino que puede OSCILAR entre
+        valores bastante distintos de un beat al siguiente por simple
+        imprecisión de frame (143→161→152→161→172... con el tempo real de
+        la zona estable en torno a 155-160). Comparar cada tramo solo con
+        el último ESCRITO no basta ahí: el ruido "salta" en vez de
+        cambiar gradualmente, así que sigue disparando un evento nuevo en
+        casi cada beat aunque la tolerancia sea generosa. La mediana en
+        una ventana de unos pocos compases da el tempo real de la zona
+        sin ese ruido (581 tramos -> 13 eventos en una canción de prueba,
+        frente a ~340 sin suavizar).
         """
-        tb = self.tiempos_beat
-        n = len(tb) - 1
-        if n <= 0:
-            return [(0, 120.0)]
+        bpms = self._bpms_suavizados()
+        eventos = []
+        bpm_anterior = None
+        for i, bpm in enumerate(bpms):
+            if bpm_anterior is None or abs(bpm - bpm_anterior) > TOLERANCIA_BPM:
+                eventos.append((int(self._ticks_beat[i]), bpm))
+                bpm_anterior = bpm
+        return eventos
 
-        crudos = np.array([
-            60.0 / (tb[i + 1] - tb[i]) if tb[i + 1] - tb[i] > 1e-6 else 120.0
-            for i in range(n)
-        ])
-        # Acota cada BPM a un rango razonable (20-400): un hueco anómalo
-        # entre beats (silencio, sección sin pulso claro) puede dar un BPM
-        # casi 0 o disparatado. Un evento B así de extremo no es solo
-        # "feo": algunos charts con BPM degenerados no llegan a listarse
-        # en Clone Hero al escanear la carpeta de Songs.
-        crudos = np.clip(crudos, 20.0, 400.0)
+    def _bpms_suavizados(self, ventana: int = 4) -> np.ndarray:
+        """bpms_por_tramo() pasado por una mediana móvil de `ventana` beats.
 
-        medio = max(1, ventana_suavizado // 2)
-        suaves = np.array([
+        Solo para sync_track(): clasificar_tempo() necesita el BPM crudo
+        (bpms_por_tramo) para medir la variación real de la grabación, no
+        esta versión ya aplanada.
+        """
+        crudos = self.bpms_por_tramo()
+        n = len(crudos)
+        medio = max(1, ventana // 2)
+        return np.array([
             np.median(crudos[max(0, i - medio):min(n, i + medio + 1)])
             for i in range(n)
         ])
 
-        eventos = []
-        bpm_anterior = None
-        for i in range(n):
-            bpm = float(suaves[i])
-            if bpm_anterior is None or abs(bpm - bpm_anterior) > tolerancia_bpm:
-                eventos.append((int(self._ticks_beat[i]), bpm))
-                bpm_anterior = bpm
-        return eventos
+    def bpms_por_tramo(self) -> np.ndarray:
+        """BPM real de cada tramo entre beats consecutivos, SIN fusionar
+        tramos parecidos (a diferencia de sync_track()). clasificar_tempo()
+        necesita esta versión cruda: mide la variación real del tempo para
+        distinguir una grabación con click de una interpretación en vivo,
+        y sync_track() ya ha colapsado el jitter menor que TOLERANCIA_BPM
+        para no hinchar el archivo — medir la variación sobre esa versión
+        ya aplanada haría parecer "estable" casi cualquier canción."""
+        tb = self.tiempos_beat
+        dt = np.diff(tb)
+        bpm = np.where(dt > 1e-6, 60.0 / np.where(dt > 1e-6, dt, 1.0), 120.0)
+        return np.clip(bpm, 20.0, 400.0)
 
     def a_ticks(self, t: float) -> int:
         """Tiempo real (s) -> tick, interpolando dentro del tramo de beat
@@ -235,19 +272,40 @@ def _asignar_carriles(tonos: np.ndarray, n_carriles: int) -> np.ndarray:
     return np.array([mapa[int(t)] for t in tonos], dtype=int)
 
 
+MARGEN_REEMPLAZO = 1.5        # normal: el retador debe sonar bastante más fuerte
+MARGEN_REEMPLAZO_CON_CAMBIO = 0.85  # con cambio de tono: puede ser algo más flojo
+
+
 def _reducir(onsets: np.ndarray, fuerzas: np.ndarray, extras: np.ndarray,
-             sep_min: float, umbral: float):
-    """Filtra onsets débiles y demasiado próximos entre sí."""
+             sep_min: float, umbral: float,
+             favorecer_cambio_tono: bool = False):
+    """Filtra onsets débiles y demasiado próximos entre sí.
+
+    `favorecer_cambio_tono` (solo tiene sentido si `extras` son tonos, no
+    bandas de batería): cuando dos onsets caen dentro de la misma ventana
+    `sep_min`, un patrón rítmico fuerte y repetitivo (siempre la misma
+    nota — p.ej. una guitarra rítmica marcando el mismo acorde una y otra
+    vez) suena más fuerte y regular que una línea melódica con movimiento,
+    así que por pura intensidad el rítmico siempre gana la competición y
+    la melodía real queda enterrada. Con esto activado, un onset que
+    cambia de tono respecto al último conservado solo necesita superar
+    MARGEN_REEMPLAZO_CON_CAMBIO (puede sonar hasta un poco más flojo y aun
+    así quedarse con la plaza) en vez del margen normal, mucho más
+    exigente, que sí sigue aplicando entre dos onsets de la misma altura.
+    """
     seleccion_t, seleccion_f, seleccion_e = [], [], []
     ultimo = -1e9
     for t, f, e in zip(onsets, fuerzas, extras):
         if f < umbral:
             continue
         if t - ultimo < sep_min:
-            # Si el nuevo onset es claramente más fuerte, sustituye al anterior
-            if seleccion_f and f > seleccion_f[-1] * 1.5:
-                seleccion_t[-1], seleccion_f[-1], seleccion_e[-1] = t, f, e
-                ultimo = t
+            if seleccion_f:
+                cambia_tono = (favorecer_cambio_tono
+                               and seleccion_e and e != seleccion_e[-1])
+                margen = MARGEN_REEMPLAZO_CON_CAMBIO if cambia_tono else MARGEN_REEMPLAZO
+                if f > seleccion_f[-1] * margen:
+                    seleccion_t[-1], seleccion_f[-1], seleccion_e[-1] = t, f, e
+                    ultimo = t
             continue
         seleccion_t.append(t)
         seleccion_f.append(f)
@@ -273,12 +331,35 @@ def _evitar_repeticion(carriles: np.ndarray, n_carriles: int) -> np.ndarray:
     return resultado
 
 
+def _excluir_antes_del_primer_beat(onsets: np.ndarray, fuerzas: np.ndarray,
+                                   extra: np.ndarray, mapa: MapaTempo):
+    """Descarta los onsets anteriores al primer beat detectado.
+
+    MapaTempo no tiene una referencia de tempo fiable antes de
+    tiempos_beat[0]: mapa.a_ticks() interpola ahí con un tramo
+    extrapolado hacia atrás que da un tick crudo NEGATIVO, y ese
+    negativo se acota a 0 (ver a_ticks) para que el .chart no lo
+    rechace. El problema es que TODOS los onsets antes del primer beat
+    acotan al mismo 0, sin importar lo separados que estén entre sí en
+    tiempo real — se ha confirmado un caso real con más de 15 notas de
+    una misma pista apiladas exactamente en el tick 0, un caso
+    degenerado (decenas de "notas" simultáneas en el mismo instante)
+    que puede colgar el juego al intentar mostrarlas todas de golpe.
+    Sin una referencia de tempo fiable ahí de todos modos, es mejor
+    perder ese puñado de onsets tempranos que arriesgarse a la pila.
+    """
+    valido = onsets >= mapa.tiempos_beat[0]
+    return onsets[valido], fuerzas[valido], extra[valido]
+
+
 def generar_pista_melodica(onsets: np.ndarray, fuerzas: np.ndarray,
                            tonos: np.ndarray, mapa: MapaTempo,
                            dificultad: str) -> list[Nota]:
     """Genera una pista de guitarra/bajo/teclado para una dificultad."""
     p = PARAMETROS[dificultad]
-    t, f, tono = _reducir(onsets, fuerzas, tonos, p["sep_min"], p["umbral"])
+    onsets, fuerzas, tonos = _excluir_antes_del_primer_beat(onsets, fuerzas, tonos, mapa)
+    t, f, tono = _reducir(onsets, fuerzas, tonos, p["sep_min"], p["umbral"],
+                          favorecer_cambio_tono=True)
     if len(t) == 0:
         return []
 
@@ -346,6 +427,7 @@ def generar_pista_bateria(onsets: np.ndarray, fuerzas: np.ndarray,
     2=amarillo (charles), 3=azul (tom), 4=verde (crash).
     """
     p = PARAMETROS[dificultad]
+    onsets, fuerzas, bandas = _excluir_antes_del_primer_beat(onsets, fuerzas, bandas, mapa)
     t, f, banda = _reducir(onsets, fuerzas, bandas, p["sep_min"], p["umbral"])
     if len(t) == 0:
         return []
@@ -436,14 +518,20 @@ def nombres_de_seccion(n: int) -> list[str]:
     return nombres[:n]
 
 
-def clasificar_tempo(sync_track: list[tuple[int, float]]) -> str:
+def clasificar_tempo(bpms_por_tramo: np.ndarray) -> str:
     """Clasifica la estabilidad del tempo detectado en esta canción concreta:
     grabación con click (BPM prácticamente constante) o interpretación en
     vivo (el tempo real fluctúa y el MapaTempo variable lo sigue tramo a
-    tramo, en vez de forzar un único BPM para toda la pista)."""
-    if len(sync_track) < 3:
+    tramo, en vez de forzar un único BPM para toda la pista).
+
+    Recibe el BPM crudo de cada tramo (MapaTempo.bpms_por_tramo()), NO la
+    lista ya fusionada de sync_track(): esa fusión colapsa a propósito el
+    jitter pequeño para no hinchar el archivo, y mediría "casi cero
+    variación" en casi cualquier canción.
+    """
+    bpms = np.asarray(bpms_por_tramo)
+    if len(bpms) < 3:
         return "tempo fijo (pocos beats detectados para evaluar variación)"
-    bpms = np.array([b for _, b in sync_track])
     variacion = float(np.std(bpms) / max(np.mean(bpms), 1.0))
     if variacion < 0.01:
         return f"grabación con click, tempo estable (~{bpms.mean():.1f} BPM constante)"

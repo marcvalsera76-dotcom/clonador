@@ -6,8 +6,9 @@ import numpy as np
 
 from clone_hero_converter.charting import (
     DIFICULTADES, FUERZA_STRUM_FORZADO, HOPO_TICKS, RESOLUCION, MapaTempo,
-    Nota, construir_mapa_tempo, generar_pista_bateria, generar_pista_melodica,
-    generar_star_power, nombres_de_seccion, segundos_a_ticks,
+    Nota, _reducir, clasificar_tempo, construir_mapa_tempo,
+    generar_pista_bateria, generar_pista_melodica, generar_star_power,
+    nombres_de_seccion, segundos_a_ticks,
 )
 from clone_hero_converter.chartfile import generar_chart, generar_song_ini
 
@@ -43,38 +44,14 @@ def test_mapa_tempo_variable_sigue_el_tempo_local():
     # Tramo 1: 60 BPM (1 beat/segundo) durante 4 beats, luego 120 BPM.
     beats = np.array([0.0, 1.0, 2.0, 3.0, 3.5, 4.0, 4.5])
     mapa = construir_mapa_tempo(beats, bpm_global=90.0)
-    # a_ticks() sigue el tempo real tramo a tramo (independiente de cómo se
-    # simplifique el sync_track para escritura): el beat 3 (tick=576) debe
-    # seguir siendo tick 576 exacto.
-    assert mapa.a_ticks(3.0) == 576
-
-
-def test_sync_track_no_emite_un_evento_por_cada_beat():
-    # Micro-fluctuaciones de tempo típicas de cualquier grabación real (aquí
-    # entre 119 y 121 BPM, dentro de la tolerancia): no deben generar un
-    # evento B distinto por cada beat, solo cuando el cambio es real.
-    rng = np.random.default_rng(0)
-    beats = np.cumsum(np.concatenate([[0.0], 60.0 / rng.uniform(119, 121, 40)]))
-    mapa = construir_mapa_tempo(beats, bpm_global=120.0)
-    sync = mapa.sync_track()
-    assert len(sync) < 5, "las micro-fluctuaciones no deben generar un evento por beat"
-
-
-def test_sync_track_sigue_capturando_cambios_reales_de_tempo():
-    # 20 beats a 60 BPM seguidos de 20 a 120 BPM: un cambio de tempo real y
-    # sostenido (no una oscilación puntual de detección) sí debe generar un
-    # nuevo evento B, incluso con el suavizado de la mediana móvil.
-    beats = np.concatenate([
-        np.arange(20) * 1.0,                       # 60 BPM
-        20.0 + np.arange(20) * 0.5,                 # 120 BPM
-    ])
-    mapa = construir_mapa_tempo(beats, bpm_global=90.0)
     sync = mapa.sync_track()
     bpms = [round(b) for _, b in sync]
-    assert bpms[0] == 60
-    assert bpms[-1] == 120
-    assert len(sync) <= 4   # un par de eventos, no uno por beat (38 tramos)
-    assert len(sync) == 2   # un evento por cada tempo distinto, no por beat
+    # sync_track() fusiona tramos consecutivos de BPM parecido (ver
+    # TOLERANCIA_BPM): los 3 tramos a 60 dan un único evento, igual que
+    # los 3 tramos a 120, así que solo deben quedar 2 cambios reales.
+    assert bpms == [60, 120]
+    # El tick del beat 3 (tick=576) debe seguir siendo tick 576 exacto
+    assert mapa.a_ticks(3.0) == 576
 
 
 def test_a_ticks_nunca_es_negativo_antes_del_primer_beat():
@@ -89,6 +66,63 @@ def test_a_ticks_nunca_es_negativo_antes_del_primer_beat():
     assert mapa.a_ticks(3.5) == 0   # bastante antes del primer beat también
 
 
+def test_no_apila_notas_en_tick_0_por_onsets_antes_del_primer_beat():
+    # Confirmado en un notes.chart real: una intro sin pulso claro genera
+    # varios onsets antes de que librosa detecte el primer beat fiable.
+    # Como TODOS esos onsets interpolan a un tick negativo que a_ticks()
+    # acota a 0 (ver test anterior), sin filtrarlos antes se apilaban
+    # más de 15 notas de la misma pista exactamente en el tick 0 — un
+    # caso degenerado que puede colgar el juego.
+    beats = np.array([7.0, 7.5, 8.0, 8.5, 9.0])   # primer beat a los 7s
+    mapa = construir_mapa_tempo(beats, bpm_global=120.0)
+    onsets = np.array([0.5, 1.2, 2.0, 2.8, 3.6, 4.4, 5.2, 6.0, 6.8,  # antes del primer beat
+                       7.2, 7.6, 8.0, 8.4])                          # después
+    fuerzas = np.full(len(onsets), 0.9)
+    tonos = np.tile(np.arange(12), 2)[:len(onsets)]
+    notas = generar_pista_melodica(onsets, fuerzas, tonos, mapa, "Expert")
+    en_tick_0 = [n for n in notas if n.tick == 0]
+    assert len(en_tick_0) <= 1, "no debe apilar varios onsets tempranos en el mismo tick 0"
+
+
+def test_clasificar_tempo_usa_bpm_crudo_no_el_ya_fusionado():
+    # sync_track() fusiona a propósito el jitter pequeño (para no hinchar
+    # el archivo), así que clasificar_tempo() debe recibir siempre
+    # bpms_por_tramo() (el BPM crudo), no sync_track(): si se le pasa la
+    # versión ya fusionada de una canción con tempo estable, puede colapsar
+    # a 1-2 eventos y caer en la rama de "pocos beats detectados", un
+    # mensaje sin sentido para una canción de 200 beats.
+    dt = 60.0 / 128.0
+    jitter = np.random.default_rng(7).normal(0, 0.0012, 200)
+    beats = np.cumsum(np.concatenate([[0.0], dt + jitter]))
+    mapa = MapaTempo(beats)
+
+    assert len(mapa.sync_track()) < 3, "el tempo casi constante debe fusionarse a pocos eventos"
+    assert "estable" in clasificar_tempo(mapa.bpms_por_tramo())
+
+
+def test_sync_track_fusiona_jitter_de_tempo_casi_constante():
+    # Con tempo real constante (120 BPM), el detector de beats siempre
+    # tiene algo de temblor: los intervalos no son EXACTAMENTE iguales.
+    # Sin fusionar tramos parecidos, esto generaría un evento B distinto
+    # en cada beat (miles de líneas en una canción larga). Con jitter de
+    # menos de TOLERANCIA_BPM, debe quedar un único evento de tempo.
+    beats = 0.5 * np.arange(60) + np.random.default_rng(1).normal(0, 0.001, 60)
+    mapa = MapaTempo(np.sort(beats))
+    sync = mapa.sync_track()
+    assert len(sync) == 1
+
+
+def test_sync_track_conserva_cambios_de_tempo_reales():
+    # Un cambio de tempo genuino (60 -> 150 BPM) no debe fusionarse,
+    # aunque esté muy por debajo de TOLERANCIA_BPM en número de tramos.
+    beats = np.concatenate([np.arange(10) * 1.0, 9.0 + np.arange(1, 10) * 0.4])
+    mapa = MapaTempo(beats)
+    sync = mapa.sync_track()
+    bpms = [round(b) for _, b in sync]
+    assert bpms[0] == 60
+    assert bpms[-1] == 150
+
+
 def test_dificultades_reducen_notas():
     onsets, fuerzas, tonos = _onsets_de_ejemplo()
     mapa = _mapa_fijo(120.0)
@@ -100,6 +134,66 @@ def test_dificultades_reducen_notas():
         ticks = [n.tick for n in notas]
         assert ticks == sorted(ticks)
     assert cuentas["Easy"] < cuentas["Medium"] < cuentas["Hard"] <= cuentas["Expert"]
+
+
+def test_acordes_alcanzables_en_todas_las_dificultades():
+    # p["acordes"] se compara contra la fuerza normalizada de un onset,
+    # que _onsets_con_fuerza() recorta a un máximo de 1.0 — un umbral por
+    # encima de 1.0 (el bug: Hard/Medium/Easy tenían 1.05-1.10) hace
+    # IMPOSIBLE que esa dificultad genere nunca un acorde. Con la fuerza
+    # máxima alcanzable (1.0) en cada onda, las 4 dificultades deben poder
+    # producir al menos una nota de 2 carriles.
+    onsets = np.arange(30) * 0.5
+    fuerzas = np.full(30, 1.0)   # la fuerza máxima físicamente alcanzable
+    tonos = np.tile(np.arange(12), 3)[:30]
+    mapa = _mapa_fijo(120.0)
+    for dif in DIFICULTADES:
+        notas = generar_pista_melodica(onsets, fuerzas, tonos, mapa, dif)
+        acordes = [n for n in notas if len(n.carriles) > 1]
+        assert acordes, f"{dif} debería poder generar acordes con fuerza máxima"
+
+
+def test_favorecer_cambio_tono_deja_ganar_a_una_nota_melodica_mas_floja():
+    # Patrón típico "pam pam pam pam": un onset fuerte y repetitivo (mismo
+    # tono) puede enterrar una nota melódica algo más floja pero con
+    # movimiento real de tono. Sin favorecer_cambio_tono, solo gana el más
+    # fuerte (comportamiento de batería, sin cambiar).
+    onsets = np.array([0.0, 0.05])
+    fuerzas = np.array([1.0, 0.9])   # la segunda es un 10% más floja
+    tonos = np.array([5, 7])         # pero cambia de tono
+
+    t, f, e = _reducir(onsets, fuerzas, tonos, sep_min=0.1, umbral=0.05,
+                       favorecer_cambio_tono=False)
+    assert list(e) == [5], "sin el favor, debe ganar el más fuerte (el repetitivo)"
+
+    t, f, e = _reducir(onsets, fuerzas, tonos, sep_min=0.1, umbral=0.05,
+                       favorecer_cambio_tono=True)
+    assert list(e) == [7], "con el favor, la nota que cambia de tono debe ganar aunque sea algo más floja"
+    assert f[0] == 0.9, "la fuerza guardada debe ser la real, no la bonificada"
+
+
+def test_favorecer_cambio_tono_no_deja_ganar_a_algo_mucho_mas_flojo():
+    # El favor no debe convertirse en "cualquier cambio de tono gana": si
+    # la nota más floja es MUCHO más floja (por debajo del margen
+    # reducido), sigue perdiendo.
+    onsets = np.array([0.0, 0.05])
+    fuerzas = np.array([1.0, 0.5])   # mitad de fuerte
+    tonos = np.array([5, 7])
+    t, f, e = _reducir(onsets, fuerzas, tonos, sep_min=0.1, umbral=0.05,
+                       favorecer_cambio_tono=True)
+    assert list(e) == [5]
+
+
+def test_favorecer_cambio_tono_no_afecta_a_bateria():
+    # generar_pista_bateria llama a _reducir sin favorecer_cambio_tono: un
+    # patrón repetitivo de la misma banda (p.ej. bombo a tempo) no debe
+    # verse alterado por este cambio.
+    onsets = np.arange(20) * 0.15
+    fuerzas = np.full(20, 0.8)
+    bandas = np.zeros(20, dtype=int)   # siempre la misma banda (bombo)
+    mapa = _mapa_fijo(120.0)
+    notas = generar_pista_bateria(onsets, fuerzas, bandas, mapa, "Expert")
+    assert notas, "debe seguir generando notas de bombo repetidas con normalidad"
 
 
 def test_easy_usa_pocos_carriles():
@@ -121,6 +215,31 @@ def test_carril_agudo_usa_todos_los_carriles():
     notas = generar_pista_melodica(onsets, fuerzas, tonos, mapa, "Expert")
     carriles_usados = {c for n in notas for c in n.carriles}
     assert carriles_usados == {0, 1, 2, 3, 4}, "debe usar los 5 carriles, incluido el naranja"
+
+
+def test_hard_usa_los_5_carriles_igual_que_expert():
+    # Convención estándar Guitar Hero/Clone Hero: Hard NO es "Expert menos
+    # un carril" — usa los mismos 5 carriles que Expert (incluido el
+    # naranja), solo con menos densidad de notas. Solo Easy (3) y Medium
+    # (4) recortan carriles.
+    onsets = np.arange(60) * 0.3
+    fuerzas = np.full(60, 0.9)
+    tonos = np.tile(np.arange(12), 5)
+    mapa = _mapa_fijo(120.0)
+    notas = generar_pista_melodica(onsets, fuerzas, tonos, mapa, "Hard")
+    carriles_usados = {c for n in notas for c in n.carriles}
+    assert 4 in carriles_usados, "el naranja debe poder aparecer en Hard"
+
+
+def test_medium_usa_hasta_el_carril_azul():
+    onsets = np.arange(60) * 0.4
+    fuerzas = np.full(60, 0.9)
+    tonos = np.tile(np.arange(12), 5)
+    mapa = _mapa_fijo(120.0)
+    notas = generar_pista_melodica(onsets, fuerzas, tonos, mapa, "Medium")
+    carriles_usados = {c for n in notas for c in n.carriles}
+    assert carriles_usados <= {0, 1, 2, 3}
+    assert 3 in carriles_usados, "el azul debe poder aparecer en Medium"
 
 
 def test_bateria_bandas():
@@ -255,6 +374,20 @@ def test_chart_incluye_secciones_y_star_power():
     assert '384 = E "section Verse"' in chart
     assert '768 = E "section Outro"' in chart
     assert '0 = S 2 192' in chart
+
+
+def test_chart_mantiene_orden_ascendente_de_tick_con_star_power():
+    # Frase de Star Power con tick menor que las últimas notas: si se
+    # escribe después de las notas sin reordenar, la sección queda con
+    # ticks no ascendentes (formato que varios lectores de .chart,
+    # incluido Clone Hero, rechazan sin avisar).
+    pistas = {("guitar", "Expert"): [Nota(0, [0]), Nota(192, [1]), Nota(1000, [2])]}
+    star_power = {("guitar", "Expert"): [(100, 50)]}
+    chart = generar_chart("T", "A", "", "Test", [(0, 120.0)], 0.0,
+                          pistas, star_power=star_power)
+    seccion = chart.split("[ExpertSingle]")[1].split("{")[1].split("}")[0]
+    ticks = [int(linea.split(" = ")[0]) for linea in seccion.strip().splitlines()]
+    assert ticks == sorted(ticks)
 
 
 def test_song_ini():
