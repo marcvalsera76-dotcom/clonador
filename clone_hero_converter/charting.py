@@ -257,17 +257,34 @@ def _asignar_carriles(tonos: np.ndarray, n_carriles: int) -> np.ndarray:
     del rango de tonos presentes en la canción (el más grave -> carril 0,
     el más agudo -> el último carril), que es como se reparten los
     carriles en un chart hecho a mano: los agudos van a la derecha.
+
+    El croma es circular (0-11 dan la vuelta: el tono 11 y el 0 están a
+    un semitono real, no en extremos opuestos), así que antes de medir
+    "altura" hace falta desenrollar el círculo por el hueco más grande
+    entre los tonos que realmente aparecen en la canción — el tramo sin
+    ninguna nota —, no cortarlo siempre en el mismo sitio (entre 11 y 0).
+    Sin esto, una melodía que usa p.ej. 10, 11, 0, 1 (cuatro semitonos
+    seguidos, cruzando esa frontera) se repartía como si 0 y 1 estuvieran
+    en un extremo del rango y 10-11 en el otro, amontonando la mayoría en
+    un único carril sin motivo musical real.
     """
     if len(tonos) == 0:
         return np.array([], dtype=int)
     valores = np.unique(tonos)
     if len(valores) == 1:
         return np.zeros(len(tonos), dtype=int)
-    minimo, maximo = int(valores.min()), int(valores.max())
+
+    presentes = sorted(int(v) for v in valores)
+    n = len(presentes)
+    huecos = [(presentes[(i + 1) % n] - presentes[i]) % 12 for i in range(n)]
+    corte = presentes[(int(np.argmax(huecos)) + 1) % n]
+    desenrollado = {v: (v - corte) % 12 for v in presentes}
+
+    minimo, maximo = min(desenrollado.values()), max(desenrollado.values())
     rango = maximo - minimo
     mapa = {
-        int(v): min(int((v - minimo) / rango * n_carriles), n_carriles - 1)
-        for v in valores
+        v: min(int((h - minimo) / rango * n_carriles), n_carriles - 1)
+        for v, h in desenrollado.items()
     }
     return np.array([mapa[int(t)] for t in tonos], dtype=int)
 
