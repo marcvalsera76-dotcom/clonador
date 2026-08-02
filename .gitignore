@@ -1,4 +1,6 @@
 __pycache__/
 *.pyc
+salida/
+*.log
 canciones/
 .pytest_cache/
