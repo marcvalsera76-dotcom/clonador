@@ -3,3 +3,4 @@ __pycache__/
 salida/
 *.log
 canciones/
+.pytest_cache/
