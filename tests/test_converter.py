@@ -14,8 +14,14 @@ from clone_hero_converter.chartfile import generar_chart, generar_song_ini
 
 
 def _onsets_de_ejemplo(n=100, paso=0.2):
+    # Espaciado con jitter (no exactamente uniforme): un paso perfectamente
+    # regular colisiona por casualidad con cualquier sep_min por encima de
+    # `paso`, dando el mismo resultado a dos dificultades distintas sin que
+    # eso signifique nada real sobre su densidad relativa (ver commit que
+    # ajustó Hard). Onsets reales nunca caen exactamente cada X segundos.
     rng = np.random.default_rng(42)
-    onsets = np.arange(n) * paso
+    jitter = rng.uniform(-paso * 0.3, paso * 0.3, n)
+    onsets = np.cumsum(np.full(n, paso) + jitter - jitter.mean())
     fuerzas = rng.uniform(0.2, 1.0, n)
     tonos = rng.integers(0, 12, n)
     return onsets, fuerzas, tonos
