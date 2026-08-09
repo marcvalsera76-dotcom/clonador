@@ -1,13 +1,27 @@
 """Calibración manual de latencia: mide tu offset personal tocando al
-ritmo de una serie de clics, para usarlo como punto de partida del
+ritmo de varias rondas de clics, para usarlo como punto de partida del
 `Offset` en los charts que generes.
 
-Esto NO sustituye al calibrador que ya trae Clone Hero (Settings >
-Gameplay > Calibration): ese mide contra el audio y el vídeo reales del
-juego, así que sigue siendo la referencia más fiable para jugar. Este
-script solo te da un número de partida razonable si notas las notas
-sistemáticamente adelantadas o atrasadas al convertir con este programa,
-sin tener que abrir el juego para probarlo.
+Pensado para ser más riguroso que el calibrador integrado de Clone Hero
+(Settings > Gameplay > Calibration):
+- Varias rondas independientes en vez de una sola pasada: una ronda mala
+  (te despistas, pierdes el pulso) no arruina el resultado, se descarta
+  sola si se aparta demasiado de las demás.
+- Descarta los primeros golpes de cada ronda ("calentamiento"): al
+  principio de cualquier serie rítmica se tiende a llegar tarde hasta
+  "engancharse" al tempo; incluirlos sesga la medida hacia offsets más
+  positivos de lo real.
+- Recorta el 10% de valores más extremos (trimmed mean) en vez de una
+  media/mediana simple sobre todo, para que un par de golpes fallados no
+  descentren el resultado.
+- Te enseña la dispersión de cada pulsación (una tira de texto, como el
+  gráfico "bueno/malo" de Clone Hero) para que puedas juzgar tú mismo si
+  la medida es de fiar o conviene repetir.
+
+Sigue sin sustituir al calibrador de Clone Hero: ese mide contra el
+audio y el vídeo reales del motor del juego, la referencia final para
+jugar. Esto es para tener un número de partida sin abrir el juego cada
+vez que generas un chart.
 
 Uso:
     python -m clone_hero_converter.calibrar
@@ -22,39 +36,22 @@ import time
 from .config import cargar_config, guardar_config
 
 BPM_POR_DEFECTO = 100.0
-BEATS_POR_DEFECTO = 16
+BEATS_POR_RONDA = 16
+N_RONDAS = 3
+BEATS_CALENTAMIENTO = 4     # primeros golpes de cada ronda, se descartan
+RECORTE = 0.10              # fracción de valores extremos que se recorta
 
 
-def calibrar(bpm: float = BPM_POR_DEFECTO,
-            n_beats: int = BEATS_POR_DEFECTO) -> float | None:
-    """Mide el offset personal (ms) tocando al ritmo de una serie de clics.
+def _ronda_de_clics(bpm: float, n_beats: int) -> tuple[list[float], list[float]]:
+    """Reproduce una ronda de `n_beats` clics y registra las pulsaciones.
 
-    Reproduce `n_beats` clics a `bpm` y registra cuándo pulsas la barra
-    espaciadora respecto a cada uno. Tocar AL RITMO de una serie (en vez
-    de reaccionar a un único estímulo sorpresa) cancela la mayor parte del
-    tiempo de reacción humano (~150-200 ms), que si no contaminaría la
-    medida y la haría inútil como offset de audio.
-
-    Devuelve la mediana en milisegundos (positivo = sueles pulsar tarde
-    respecto al clic; negativo = pulsas pronto), o None si no hubo
-    suficientes pulsaciones válidas para confiar en el resultado.
+    Devuelve (tiempos_clic, tiempos_pulsacion) en segundos de reloj
+    monotónico (time.perf_counter).
     """
-    try:
-        import msvcrt
-        import winsound
-    except ImportError:
-        print("Esta calibración solo funciona en Windows (usa winsound/msvcrt).")
-        print("En otros sistemas, usa el calibrador integrado de Clone Hero.")
-        return None
+    import msvcrt
+    import winsound
 
     intervalo = 60.0 / bpm
-    print(f"\nVas a oír {n_beats} clics a {bpm:.0f} BPM.")
-    print("Pulsa la BARRA ESPACIADORA justo cuando oigas cada clic, como si "
-          "tocaras al ritmo (no esperes a reaccionar a cada uno suelto).")
-    input("Pulsa Enter cuando estés listo...")
-    print("Empezando en 2 segundos...")
-    time.sleep(2)
-
     clics: list[float] = []
     pulsaciones: list[float] = []
 
@@ -76,32 +73,130 @@ def calibrar(bpm: float = BPM_POR_DEFECTO,
             msvcrt.getch()
             pulsaciones.append(time.perf_counter())
     hilo.join()
+    return clics, pulsaciones
 
-    if not clics or not pulsaciones:
-        print("No se registraron suficientes datos. Repite la prueba.")
-        return None
 
-    # Empareja cada pulsación con el clic más cercano en el tiempo y
-    # descarta las que caen a más de medio compás (pulsaciones sueltas
-    # que no corresponden a ningún clic real).
+def _emparejar(clics: list[float], pulsaciones: list[float],
+              intervalo: float, descartar_antes_de: int = 0) -> list[float]:
+    """Empareja cada pulsación con el clic más cercano y devuelve las
+    diferencias en ms, descartando las que no corresponden a ningún clic
+    real (a más de medio compás) o caen en los primeros clics de
+    calentamiento."""
+    umbral_calentamiento = clics[descartar_antes_de] if descartar_antes_de < len(clics) else 0.0
     offsets_ms = []
     for p in pulsaciones:
+        if p < umbral_calentamiento:
+            continue
         clic_mas_cercano = min(clics, key=lambda c: abs(c - p))
         diferencia_ms = (p - clic_mas_cercano) * 1000
         if abs(diferencia_ms) < intervalo * 1000 / 2:
             offsets_ms.append(diferencia_ms)
+    return offsets_ms
 
-    minimo_valido = max(3, n_beats // 3)
-    if len(offsets_ms) < minimo_valido:
-        print(f"Muy pocas pulsaciones cerca de los clics ({len(offsets_ms)} "
-              f"de {n_beats}). Repite la prueba intentando ir más al ritmo.")
+
+def _media_recortada(valores: list[float], recorte: float = RECORTE) -> float:
+    """Media tras descartar el `recorte` de valores más altos y más bajos
+    (p.ej. recorte=0.10 descarta el 10% más alto y el 10% más bajo)."""
+    ordenados = sorted(valores)
+    n_descarte = int(len(ordenados) * recorte)
+    recortados = ordenados[n_descarte: len(ordenados) - n_descarte] or ordenados
+    return statistics.mean(recortados)
+
+
+def _barra_dispersion(valores: list[float], ancho: int = 41) -> str:
+    """Tira de texto tipo '....|..*.....' que sitúa cada offset en una
+    escala de -100 a +100 ms alrededor del centro, para ver de un vistazo
+    si las pulsaciones están apretadas (buena consistencia) o dispersas
+    (mala consistencia) — el equivalente en texto al gráfico bueno/malo
+    de la calibración de Clone Hero."""
+    limite = 100.0
+    celdas = ["·"] * ancho
+    centro = ancho // 2
+    celdas[centro] = "|"
+    for v in valores:
+        pos = centro + int(round(v / limite * centro))
+        pos = max(0, min(ancho - 1, pos))
+        celdas[pos] = "*"
+    return "".join(celdas)
+
+
+def calibrar(bpm: float = BPM_POR_DEFECTO, n_rondas: int = N_RONDAS,
+            beats_por_ronda: int = BEATS_POR_RONDA) -> float | None:
+    """Mide el offset personal (ms) en varias rondas de clics.
+
+    Devuelve la media recortada en milisegundos (positivo = sueles pulsar
+    tarde respecto al clic; negativo = pulsas pronto), o None si no hubo
+    suficientes datos de fiar.
+    """
+    try:
+        import msvcrt  # noqa: F401
+        import winsound  # noqa: F401
+    except ImportError:
+        print("Esta calibración solo funciona en Windows (usa winsound/msvcrt).")
+        print("En otros sistemas, usa el calibrador integrado de Clone Hero.")
         return None
 
-    mediana = statistics.median(offsets_ms)
-    print(f"\nOffset medido: {mediana:+.0f} ms "
-          f"(mediana de {len(offsets_ms)}/{n_beats} pulsaciones válidas)")
+    intervalo = 60.0 / bpm
+    print(f"\nVamos a hacer {n_rondas} rondas de {beats_por_ronda} clics a "
+          f"{bpm:.0f} BPM cada una.")
+    print("Pulsa la BARRA ESPACIADORA al ritmo de cada clic (no reacciones a "
+          "uno suelto: engánchate al pulso, como si tocaras).")
+    print("Ignora los primeros golpes de cada ronda mientras coges el tempo, "
+          "esos no cuentan.")
+    input("Pulsa Enter cuando estés listo...")
+
+    medianas_por_ronda: list[float] = []
+    todos_los_offsets: list[float] = []
+
+    for ronda in range(1, n_rondas + 1):
+        print(f"\n— Ronda {ronda}/{n_rondas} — empezando en 2 segundos...")
+        time.sleep(2)
+        clics, pulsaciones = _ronda_de_clics(bpm, beats_por_ronda)
+        offsets_ms = _emparejar(clics, pulsaciones, intervalo,
+                                descartar_antes_de=BEATS_CALENTAMIENTO)
+        minimo_valido = max(3, (beats_por_ronda - BEATS_CALENTAMIENTO) // 2)
+        if len(offsets_ms) < minimo_valido:
+            print(f"  Ronda descartada: solo {len(offsets_ms)} pulsaciones "
+                  f"válidas de fiar. (No pasa nada, sigue con las siguientes.)")
+            continue
+        mediana_ronda = statistics.median(offsets_ms)
+        spread = statistics.pstdev(offsets_ms) if len(offsets_ms) > 1 else 0.0
+        print(f"  Offset de esta ronda: {mediana_ronda:+.0f} ms "
+              f"(±{spread:.0f} ms de dispersión, {len(offsets_ms)} golpes)")
+        print(f"  [{_barra_dispersion(offsets_ms)}]  (-100ms{'':>27}+100ms)")
+        medianas_por_ronda.append(mediana_ronda)
+        todos_los_offsets.extend(offsets_ms)
+
+    if len(medianas_por_ronda) < 2:
+        print("\nNo hubo suficientes rondas válidas. Repite la prueba — "
+              "procura mantener el pulso constante desde el 5º golpe.")
+        return None
+
+    # Una ronda entera muy distinta de las demás (te despistaste, perdiste
+    # el pulso a mitad) se descarta antes de promediar, en vez de dejar
+    # que arrastre el resultado final.
+    mediana_global = statistics.median(medianas_por_ronda)
+    rondas_coherentes = [m for m in medianas_por_ronda
+                         if abs(m - mediana_global) < 60.0] or medianas_por_ronda
+    if len(rondas_coherentes) < len(medianas_por_ronda):
+        print(f"\n({len(medianas_por_ronda) - len(rondas_coherentes)} ronda(s) "
+              f"muy distinta(s) del resto, descartada(s) del resultado final)")
+
+    resultado = _media_recortada(rondas_coherentes) if len(rondas_coherentes) >= 3 \
+        else statistics.mean(rondas_coherentes)
+    dispersion_entre_rondas = (statistics.pstdev(rondas_coherentes)
+                               if len(rondas_coherentes) > 1 else 0.0)
+
+    print(f"\n=== Resultado: {resultado:+.0f} ms "
+          f"(de {len(rondas_coherentes)} rondas válidas) ===")
+    if dispersion_entre_rondas > 25:
+        print(f"⚠ Las rondas variaron bastante entre sí (±{dispersion_entre_rondas:.0f} "
+              f"ms). El resultado es utilizable pero no muy fino; repite la "
+              f"prueba en algún momento si puedes para afinarlo.")
+    else:
+        print(f"Consistencia buena entre rondas (±{dispersion_entre_rondas:.0f} ms).")
     print("Positivo = sueles pulsar tarde. Negativo = pulsas pronto.")
-    return mediana
+    return resultado
 
 
 def calibrar_y_guardar() -> None:
