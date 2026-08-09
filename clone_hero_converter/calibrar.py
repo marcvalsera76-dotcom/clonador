@@ -17,6 +17,10 @@ Pensado para ser más riguroso que el calibrador integrado de Clone Hero
 - Te enseña la dispersión de cada pulsación (una tira de texto, como el
   gráfico "bueno/malo" de Clone Hero) para que puedas juzgar tú mismo si
   la medida es de fiar o conviene repetir.
+- Usa tu guitarra de Clone Hero si `pygame` la detecta como mando (mejor
+  que teclado: mides exactamente el dispositivo con el que vas a jugar,
+  no una tecla que da igual). Si no hay pygame o no detecta ningún
+  mando, cae a la barra espaciadora.
 
 Sigue sin sustituir al calibrador de Clone Hero: ese mide contra el
 audio y el vídeo reales del motor del juego, la referencia final para
@@ -29,9 +33,12 @@ Uso:
 
 from __future__ import annotations
 
+import math
 import statistics
+import struct
 import threading
 import time
+from typing import Callable
 
 from .config import cargar_config, guardar_config
 
@@ -42,15 +49,97 @@ BEATS_CALENTAMIENTO = 4     # primeros golpes de cada ronda, se descartan
 RECORTE = 0.10              # fracción de valores extremos que se recorta
 
 
-def _ronda_de_clics(bpm: float, n_beats: int) -> tuple[list[float], list[float]]:
+def _generar_clic_wav(frecuencia: float = 1000.0, duracion_ms: int = 60,
+                      muestreo: int = 44100) -> bytes:
+    """Genera un WAV corto en memoria (tono seno con fade-out) para
+    reproducir con winsound.PlaySound.
+
+    Más fiable que winsound.Beep(): Beep() suena por el "dispositivo de
+    pitido" del sistema, que en muchos PCs modernos está deshabilitado o
+    no está conectado al altavoz/auriculares principal — puede no sonar
+    nunca aunque el volumen normal esté bien. PlaySound con un WAV real
+    sale por el dispositivo de audio por defecto, el mismo que usa
+    cualquier otro programa (incluido Clone Hero).
+    """
+    n_muestras = int(muestreo * duracion_ms / 1000)
+    muestras = bytearray()
+    for i in range(n_muestras):
+        t = i / muestreo
+        progreso = i / n_muestras
+        fade = 1.0 if progreso <= 0.7 else max(0.0, 1.0 - (progreso - 0.7) / 0.3)
+        valor = int(32767 * 0.6 * fade * math.sin(2 * math.pi * frecuencia * t))
+        muestras += struct.pack('<h', valor)
+
+    bloque_fmt = struct.pack('<4sIHHIIHH', b'fmt ', 16, 1, 1, muestreo,
+                             muestreo * 2, 2, 16)
+    bloque_data = struct.pack('<4sI', b'data', len(muestras)) + bytes(muestras)
+    riff = struct.pack('<4sI4s', b'RIFF',
+                       4 + len(bloque_fmt) + len(bloque_data), b'WAVE')
+    return riff + bloque_fmt + bloque_data
+
+
+def _detectar_entrada() -> tuple[Callable[[], bool], str]:
+    """Devuelve (hay_pulsacion, descripcion): una función que, llamada a
+    menudo, dice si hubo una pulsación nueva desde la última vez, y una
+    descripción de qué dispositivo se está usando.
+
+    Prioriza un mando/guitarra detectado por pygame (cualquier botón,
+    incluido cualquier traste, cuenta como pulsación) y cae a la barra
+    espaciadora si pygame no está instalado o no hay ningún mando
+    conectado.
+    """
+    try:
+        import pygame
+        pygame.init()
+        pygame.joystick.init()
+        if pygame.joystick.get_count() > 0:
+            joy = pygame.joystick.Joystick(0)
+            joy.init()
+            nombre = joy.get_name()
+
+            def hay_pulsacion_mando() -> bool:
+                pulso = False
+                for evento in pygame.event.get():
+                    if evento.type == pygame.JOYBUTTONDOWN:
+                        pulso = True
+                return pulso
+
+            return hay_pulsacion_mando, f'tu mando ("{nombre}", cualquier traste)'
+    except ImportError:
+        pass
+    except Exception:
+        pass  # cualquier fallo al inicializar el mando: caer a teclado
+
+    try:
+        import msvcrt
+    except ImportError:
+        def hay_pulsacion_nunca() -> bool:
+            return False
+        return hay_pulsacion_nunca, "(sin entrada disponible)"
+
+    def hay_pulsacion_teclado() -> bool:
+        pulso = False
+        while msvcrt.kbhit():
+            msvcrt.getch()
+            pulso = True
+        return pulso
+
+    return hay_pulsacion_teclado, "la barra espaciadora"
+
+
+def _reproducir_clic(clic_wav: bytes) -> None:
+    import winsound
+    winsound.PlaySound(clic_wav, winsound.SND_MEMORY | winsound.SND_ASYNC)
+
+
+def _ronda_de_clics(bpm: float, n_beats: int, clic_wav: bytes,
+                    hay_pulsacion: Callable[[], bool]
+                    ) -> tuple[list[float], list[float]]:
     """Reproduce una ronda de `n_beats` clics y registra las pulsaciones.
 
     Devuelve (tiempos_clic, tiempos_pulsacion) en segundos de reloj
     monotónico (time.perf_counter).
     """
-    import msvcrt
-    import winsound
-
     intervalo = 60.0 / bpm
     clics: list[float] = []
     pulsaciones: list[float] = []
@@ -63,15 +152,15 @@ def _ronda_de_clics(bpm: float, n_beats: int) -> tuple[list[float], list[float]]
             if espera > 0:
                 time.sleep(espera)
             clics.append(time.perf_counter())
-            winsound.Beep(1000, 60)
+            _reproducir_clic(clic_wav)
 
     hilo = threading.Thread(target=hilo_clics, daemon=True)
     hilo.start()
     fin = time.perf_counter() + intervalo * n_beats + 1.0
     while time.perf_counter() < fin:
-        if msvcrt.kbhit():
-            msvcrt.getch()
+        if hay_pulsacion():
             pulsaciones.append(time.perf_counter())
+        time.sleep(0.002)  # sondeo fino sin saturar la CPU
     hilo.join()
     return clics, pulsaciones
 
@@ -129,29 +218,34 @@ def calibrar(bpm: float = BPM_POR_DEFECTO, n_rondas: int = N_RONDAS,
     suficientes datos de fiar.
     """
     try:
-        import msvcrt  # noqa: F401
         import winsound  # noqa: F401
     except ImportError:
-        print("Esta calibración solo funciona en Windows (usa winsound/msvcrt).")
+        print("Esta calibración solo funciona en Windows (usa winsound).")
         print("En otros sistemas, usa el calibrador integrado de Clone Hero.")
         return None
 
+    hay_pulsacion, descripcion_entrada = _detectar_entrada()
+    if descripcion_entrada == "(sin entrada disponible)":
+        print("No se encontró ni teclado ni mando utilizable. Cancelado.")
+        return None
+
+    clic_wav = _generar_clic_wav()
     intervalo = 60.0 / bpm
     print(f"\nVamos a hacer {n_rondas} rondas de {beats_por_ronda} clics a "
           f"{bpm:.0f} BPM cada una.")
-    print("Pulsa la BARRA ESPACIADORA al ritmo de cada clic (no reacciones a "
-          "uno suelto: engánchate al pulso, como si tocaras).")
+    print(f"Pulsa {descripcion_entrada} al ritmo de cada clic (no reacciones "
+          f"a uno suelto: engánchate al pulso, como si tocaras).")
     print("Ignora los primeros golpes de cada ronda mientras coges el tempo, "
           "esos no cuentan.")
     input("Pulsa Enter cuando estés listo...")
 
     medianas_por_ronda: list[float] = []
-    todos_los_offsets: list[float] = []
 
     for ronda in range(1, n_rondas + 1):
         print(f"\n— Ronda {ronda}/{n_rondas} — empezando en 2 segundos...")
         time.sleep(2)
-        clics, pulsaciones = _ronda_de_clics(bpm, beats_por_ronda)
+        clics, pulsaciones = _ronda_de_clics(bpm, beats_por_ronda, clic_wav,
+                                             hay_pulsacion)
         offsets_ms = _emparejar(clics, pulsaciones, intervalo,
                                 descartar_antes_de=BEATS_CALENTAMIENTO)
         minimo_valido = max(3, (beats_por_ronda - BEATS_CALENTAMIENTO) // 2)
@@ -165,7 +259,6 @@ def calibrar(bpm: float = BPM_POR_DEFECTO, n_rondas: int = N_RONDAS,
               f"(±{spread:.0f} ms de dispersión, {len(offsets_ms)} golpes)")
         print(f"  [{_barra_dispersion(offsets_ms)}]  (-100ms{'':>27}+100ms)")
         medianas_por_ronda.append(mediana_ronda)
-        todos_los_offsets.extend(offsets_ms)
 
     if len(medianas_por_ronda) < 2:
         print("\nNo hubo suficientes rondas válidas. Repite la prueba — "

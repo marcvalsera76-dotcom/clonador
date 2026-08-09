@@ -3,7 +3,8 @@ existen en Windows): las funciones de estadística y emparejado no
 dependen del hardware, así que se pueden probar igual en cualquier SO."""
 
 from clone_hero_converter.calibrar import (
-    _barra_dispersion, _emparejar, _media_recortada,
+    _barra_dispersion, _detectar_entrada, _emparejar, _generar_clic_wav,
+    _media_recortada,
 )
 
 
@@ -49,3 +50,20 @@ def test_emparejar_descarta_pulsaciones_de_calentamiento():
     # pulsaciones que caen antes de clics[2] = 1.0
     offsets = _emparejar(clics, pulsaciones, intervalo, descartar_antes_de=2)
     assert len(offsets) == 2
+
+
+def test_detectar_entrada_no_falla_sin_pygame_ni_msvcrt():
+    # En Linux (sin pygame instalado ni msvcrt, que es exclusivo de
+    # Windows) no debe lanzar ninguna excepción, solo degradar con
+    # elegancia a "sin entrada disponible".
+    hay_pulsacion, descripcion = _detectar_entrada()
+    assert callable(hay_pulsacion)
+    assert isinstance(descripcion, str)
+    assert hay_pulsacion() is False
+
+
+def test_generar_clic_wav_devuelve_wav_valido():
+    wav = _generar_clic_wav(duracion_ms=60)
+    assert wav[:4] == b"RIFF"
+    assert wav[8:12] == b"WAVE"
+    assert len(wav) > 44  # cabecera + algo de datos de audio

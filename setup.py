@@ -13,6 +13,7 @@ setup(
         "soundfile>=0.12",
         "static-ffmpeg>=2.5",
         "tqdm>=4.60",
+        "pygame>=2.5",
     ],
     entry_points={
         "console_scripts": [
