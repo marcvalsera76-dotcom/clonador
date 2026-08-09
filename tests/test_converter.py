@@ -6,7 +6,7 @@ import numpy as np
 
 from clone_hero_converter.charting import (
     DIFICULTADES, FUERZA_STRUM_FORZADO, HOPO_TICKS, RESOLUCION, MapaTempo,
-    Nota, _reducir, clasificar_tempo, construir_mapa_tempo,
+    Nota, _asignar_carriles, _reducir, clasificar_tempo, construir_mapa_tempo,
     generar_pista_bateria, generar_pista_melodica, generar_star_power,
     nombres_de_seccion, segundos_a_ticks,
 )
@@ -215,6 +215,20 @@ def test_carril_agudo_usa_todos_los_carriles():
     notas = generar_pista_melodica(onsets, fuerzas, tonos, mapa, "Expert")
     carriles_usados = {c for n in notas for c in n.carriles}
     assert carriles_usados == {0, 1, 2, 3, 4}, "debe usar los 5 carriles, incluido el naranja"
+
+
+def test_asignar_carriles_respeta_la_circularidad_del_croma():
+    # Melodía que usa 10, 11, 0, 1 (cuatro semitonos seguidos, cruzando la
+    # frontera 11->0): son cuatro tonos vecinos de verdad, no deberían
+    # amontonarse en un único carril solo porque numéricamente 0 y 1 son
+    # "bajos" y 10 y 11 son "altos" en una recta 0-11.
+    tonos = np.array([10, 11, 0, 1] * 3)
+    carriles = _asignar_carriles(tonos, 5)
+    valores_unicos = sorted(set(int(c) for t, c in zip(tonos, carriles)))
+    # Deben repartirse en al menos 3 carriles distintos, no amontonarse
+    # todos (o casi todos) en uno solo.
+    carriles_por_tono = {int(t): int(c) for t, c in zip(tonos, carriles)}
+    assert len(set(carriles_por_tono.values())) >= 3
 
 
 def test_hard_usa_los_5_carriles_igual_que_expert():
