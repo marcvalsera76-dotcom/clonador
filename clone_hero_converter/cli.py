@@ -25,6 +25,7 @@ from .charting import (
     DIFICULTADES, clasificar_tempo, construir_mapa_tempo, estadisticas_pista,
     generar_instrumento, generar_star_power, nombres_de_seccion,
 )
+from .config import cargar_config
 
 INSTRUMENTOS = ["guitar", "bass", "drums", "keys"]
 INSTRUMENTOS_POR_DEFECTO = ["guitar", "bass", "keys"]  # sin batería por defecto
@@ -85,10 +86,29 @@ def preguntar_texto(pregunta: str, por_defecto: str) -> str:
     return respuesta or por_defecto
 
 
+def _offset_por_defecto() -> float:
+    """Offset (s) a partir del offset_calibrado_ms guardado por
+    calibrar.py, o 0.0 si el usuario nunca ha calibrado. Se resta para
+    compensar la latencia medida: si sueles pulsar tarde (offset positivo
+    en ms), las notas deben llegar antes."""
+    ms = cargar_config().get("offset_calibrado_ms")
+    return -float(ms) / 1000.0 if ms else 0.0
+
+
 def convertir(ruta: str, titulo: str, artista: str, album: str,
               instrumentos: list[str], dificultades: list[str],
-              salida: str) -> str:
-    """Ejecuta la conversión completa y devuelve la carpeta generada."""
+              salida: str, offset: float | None = None) -> str:
+    """Ejecuta la conversión completa y devuelve la carpeta generada.
+
+    `offset` (s) se resta al tick 0 del chart respecto al audio. Si no se
+    especifica, se usa el valor calibrado por `calibrar.py` (o 0.0 si el
+    usuario nunca ha calibrado).
+    """
+    if offset is None:
+        offset = _offset_por_defecto()
+    if offset:
+        print(f"🎚️ Usando offset calibrado: {offset:+.3f} s")
+
     print("🔧 Comprobando ffmpeg...")
     verificar_ffmpeg()  # falla rápido y con mensaje claro si no está disponible
 
@@ -174,7 +194,7 @@ def convertir(ruta: str, titulo: str, artista: str, album: str,
 
     print("📝 Escribiendo notes.chart y song.ini...")
     chart = generar_chart(titulo, artista, album, GENERADOR,
-                          mapa.sync_track(), 0.0, pistas,
+                          mapa.sync_track(), offset, pistas,
                           secciones=secciones, star_power=star_power)
     with open(os.path.join(carpeta, "notes.chart"), "w", encoding="utf-8") as f:
         f.write(chart)
