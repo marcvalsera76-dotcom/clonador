@@ -44,7 +44,7 @@ DIFICULTADES = ["Easy", "Medium", "Hard", "Expert"]
 # acordes rara vez aparecen en Easy", no "nunca").
 PARAMETROS = {
     "Expert": dict(sep_min=0.100, carriles=5, umbral=0.07, acordes=0.95),
-    "Hard":   dict(sep_min=0.190, carriles=5, umbral=0.21, acordes=0.97),
+    "Hard":   dict(sep_min=0.200, carriles=5, umbral=0.21, acordes=0.97),
     "Medium": dict(sep_min=0.280, carriles=4, umbral=0.28, acordes=0.985),
     "Easy":   dict(sep_min=0.500, carriles=3, umbral=0.40, acordes=0.998),
 }
