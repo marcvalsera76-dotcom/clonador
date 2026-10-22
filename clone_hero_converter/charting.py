@@ -53,16 +53,22 @@ SUSTAIN_MINIMO = 0.45   # hueco (s) a partir del cual la nota anterior se alarga
 SUSTAIN_MARGEN = 0.15   # margen (s) que se deja antes de la siguiente nota
 
 # --- HOPO / strum forzado ---------------------------------------------------
-# Calibrado con las 4 referencias reales analizadas (Mayonaise, Treasure,
-# Cantina Band, Shape of my Heart):
-#   - HOPO forzado (N 5): notas sueltas, de traste distinto a la anterior,
-#     separadas por poco tiempo (paso melódico rápido, "legato"). Mayonaise
-#     tenía 102 de 1632 notas así (~6%, rock de tempo medio).
-#   - Strum forzado (N 6): ataques marcados/percusivos (acordes, o notas
-#     sueltas con onset fuerte tipo "stab"), para que suenen tocadas y no
-#     "ligadas" aunque caigan dentro de la ventana de HOPO natural. Cantina
-#     Band (swing con metales staccato) tenía 834 de 1668 así (~50%).
-HOPO_TICKS = RESOLUCION // 3       # ventana de "paso rápido" (~1/12 negra)
+# Revisado con dos charts reales guardados en referencias/ (Björk - Human
+# Behavior, Sonic Youth - Pink Steam): la nota tipo 5 es un TOGGLE del
+# estado HOPO/strum que el juego ya calcula solo (traste distinto al de la
+# nota anterior + dentro de HOPO_TICKS = HOPO natural; si no, strum
+# natural), no un "activar HOPO" sin más. Por eso solo hace falta forzarla
+# cuando queremos lo CONTRARIO de lo que saldría natural — ver el uso en
+# generar_pista_melodica(). La nota tipo 6 no se usa: por especificación
+# del formato es Tap Note (se toca sin rasguear en absoluto), no "forzar
+# strum"; ambas referencias reales tienen 0% de uso de tipo 6.
+#
+# (Una nota anterior de este comentario decía lo contrario — "HOPO forzado
+# = traste distinto y cercano", "strum forzado = ataque percusivo con nota
+# tipo 6" — basado en un análisis de otras 4 referencias que ya no están
+# en el repo para volver a comprobar. Con datos reales delante que sí se
+# pueden releer, la semántica correcta es la de arriba.)
+HOPO_TICKS = RESOLUCION // 3       # ventana de HOPO natural (~1/12 negra)
 FUERZA_STRUM_FORZADO = 0.75        # onset por encima de esto = ataque percusivo
 
 
@@ -71,7 +77,7 @@ class Nota:
     tick: int
     carriles: list[int]   # 0=verde .. 4=naranja (batería: 0=bombo .. 4=verde)
     longitud: int = 0     # ticks de sustain (0 = nota corta)
-    forzado: int | None = None   # 5=HOPO forzado, 6=strum forzado, None=natural
+    forzado: int | None = None   # 5=toggle HOPO/strum forzado, None=natural
 
 
 def segundos_a_ticks(t: float, bpm: float) -> int:
@@ -396,17 +402,40 @@ def generar_pista_melodica(onsets: np.ndarray, fuerzas: np.ndarray,
 
         tick_inicio = mapa.a_ticks(t[i])
 
-        # HOPO / strum forzado: los acordes nunca son HOPO. Un ataque muy
-        # marcado (percusivo) fuerza strum aunque quede dentro de la
-        # ventana de HOPO; si no, un cambio de traste rápido respecto a la
-        # nota anterior se marca como HOPO forzado.
+        # Forzado de HOPO/strum (nota tipo 5 en .chart): es un TOGGLE del
+        # estado natural que calcula el propio juego (distinto traste que
+        # la nota anterior + dentro de la ventana HOPO_TICKS = HOPO
+        # natural; mismo traste, o fuera de esa ventana = strum natural),
+        # no un "activar HOPO" incondicional.
+        #
+        # Confirmado con dos charts reales hechos a mano (Sonic Youth -
+        # Pink Steam, 105 notas N5): el 93% están en sitios donde el
+        # estado natural YA sería strum (mismo traste, o traste distinto
+        # pero separado) y el charter fuerza a HOPO; solo un 7% están
+        # donde ya sería HOPO natural. La versión anterior de este código
+        # hacía justo lo contrario: marcaba forzado=5 EXACTAMENTE en la
+        # condición de HOPO natural (traste distinto + cerca), que por ser
+        # un toggle CANCELABA el HOPO en vez de crearlo.
+        #
+        # Por eso aquí solo hace falta forzar en un caso: un ataque muy
+        # marcado (percusivo) que cae en una posición que naturalmente
+        # sería HOPO, y que por eso necesita el toggle para sonar
+        # rasgueado/strum en vez de ligado. Un cambio de traste rápido NO
+        # necesita ningún flag: el juego ya lo toca como HOPO sin ayuda.
+        #
+        # La nota tipo 6 ("strum forzado" en versiones anteriores) no se
+        # usa: por especificación del formato es Tap Note (se puede tocar
+        # sin rasguear en absoluto), no "forzar strum" — lo contrario de
+        # la intención original. Ambas referencias reales analizadas
+        # (Björk, Sonic Youth) tienen 0% de uso de tipo 6.
         forzado = None
         if not es_acorde:
-            if f[i] >= FUERZA_STRUM_FORZADO:
-                forzado = 6
-            elif (anterior_fret is not None and lanes[0] != anterior_fret
-                  and anterior_tick is not None
-                  and tick_inicio - anterior_tick <= HOPO_TICKS):
+            seria_hopo_natural = (
+                anterior_fret is not None and lanes[0] != anterior_fret
+                and anterior_tick is not None
+                and tick_inicio - anterior_tick <= HOPO_TICKS
+            )
+            if seria_hopo_natural and f[i] >= FUERZA_STRUM_FORZADO:
                 forzado = 5
 
         longitud = 0
@@ -561,17 +590,22 @@ def clasificar_tempo(bpms_por_tramo: np.ndarray) -> str:
 
 
 def estadisticas_pista(notas: list[Nota]) -> dict:
-    """Cuenta acordes, HOPO, strums forzados y sustains de una pista ya
-    generada: da una foto real de cómo quedó ESA canción, no una regla
-    genérica."""
+    """Cuenta acordes, strums forzados y sustains de una pista ya generada:
+    da una foto real de cómo quedó ESA canción, no una regla genérica.
+
+    No hay una cuenta de "HOPO forzado": el HOPO sale solo del cálculo
+    natural del juego (traste distinto + dentro de la ventana), sin
+    necesidad de ningún flag — ver el comentario sobre la nota tipo 5 más
+    arriba. `forzado_strum` es el único forzado que este generador aplica:
+    cuántas notas que habrían salido HOPO por defecto se marcaron para
+    sonar rasgueadas (ataque percusivo), en vez de ligadas."""
     if not notas:
-        return dict(total=0, acordes=0, hopo=0, strum=0, sustains=0)
+        return dict(total=0, acordes=0, forzado_strum=0, sustains=0)
     total = len(notas)
     return dict(
         total=total,
         acordes=sum(1 for n in notas if len(n.carriles) > 1),
-        hopo=sum(1 for n in notas if n.forzado == 5),
-        strum=sum(1 for n in notas if n.forzado == 6),
+        forzado_strum=sum(1 for n in notas if n.forzado == 5),
         sustains=sum(1 for n in notas if n.longitud > 0),
     )
 

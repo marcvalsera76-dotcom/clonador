@@ -140,7 +140,7 @@ def convertir(ruta: str, titulo: str, artista: str, album: str,
         stats = estadisticas_pista(pistas[(instrumento, dif_alta)])
         print(f"   ✔ {NOMBRE_INSTRUMENTO[instrumento]} ({dif_alta}): "
               f"{stats['total']} notas · {stats['acordes']} acordes · "
-              f"{stats['hopo']} HOPO · {stats['strum']} strum forzado · "
+              f"{stats['forzado_strum']} strum forzado (sobre HOPO natural) · "
               f"{stats['sustains']} sustains")
 
     # Estructura de la canción (Intro/Verse/Chorus/.../Outro): navegable

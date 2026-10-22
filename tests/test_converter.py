@@ -273,24 +273,30 @@ def test_bateria_bandas():
     assert 0 in carriles and 1 in carriles and 2 in carriles
 
 
-def test_hopo_forzado_en_paso_rapido_de_traste():
+def test_cambio_de_traste_rapido_no_necesita_forzado():
     # Notas sueltas, dentro de la ventana de HOPO (64 ticks ≈ 0.167s a 120
     # BPM) pero por encima del sep_min de Expert (0.085s) para que
-    # _reducir no las descarte. Fuerza baja para no disparar strum forzado.
+    # _reducir no las descarte. Fuerza baja (no percusiva).
+    #
+    # Confirmado con charts reales (referencias/): la nota tipo 5 es un
+    # TOGGLE del estado HOPO/strum que el juego ya calcula él solo, no un
+    # "activar HOPO" sin más. Un cambio de traste rápido YA sale HOPO de
+    # forma natural (sin ningún flag) — forzarlo aquí lo CANCELARÍA en vez
+    # de reforzarlo, que es justo el bug que tenía esta función antes.
     onsets = np.array([0.0, 0.12, 0.24, 0.9])
     fuerzas = np.array([0.3, 0.3, 0.3, 0.3])
     tonos = np.array([0, 4, 8, 0])   # cromas distintos -> carriles distintos
     mapa = _mapa_fijo(120.0)
     notas = generar_pista_melodica(onsets, fuerzas, tonos, mapa, "Expert")
     assert len(notas) == 4
-    # La 2ª y 3ª nota deben quedar marcadas HOPO (traste distinto + rápido)
-    assert notas[1].forzado == 5
-    assert notas[2].forzado == 5
-    # La 1ª no tiene nota anterior -> nunca forzada
-    assert notas[0].forzado is None
+    assert all(n.forzado is None for n in notas)
 
 
-def test_strum_forzado_en_ataque_percusivo():
+def test_ataque_percusivo_en_ventana_hopo_fuerza_strum():
+    # 2ª nota: traste distinto y cerca de la anterior (caería en HOPO
+    # natural) pero con un ataque marcado (percusivo, >= FUERZA_STRUM_
+    # FORZADO) — aquí sí hace falta el toggle, para que suene rasgueada
+    # en vez de ligada.
     onsets = np.array([0.0, 0.12])
     fuerzas = np.array([0.3, 0.78])   # 2ª nota: fuerte pero sin llegar a acorde (umbral 0.95)
     tonos = np.array([0, 4])
@@ -298,7 +304,21 @@ def test_strum_forzado_en_ataque_percusivo():
     notas = generar_pista_melodica(onsets, fuerzas, tonos, mapa, "Expert")
     assert len(notas) == 2
     assert len(notas[1].carriles) == 1   # nota suelta, no acorde
-    assert notas[1].forzado == 6
+    assert notas[1].forzado == 5
+
+
+def test_ataque_percusivo_fuera_de_ventana_hopo_no_necesita_forzado():
+    # Mismo ataque percusivo que el test anterior, pero separado más de
+    # la ventana de HOPO: ya sería strum natural por la distancia, así
+    # que forzar aquí no serviría de nada (y el generador no debe
+    # hacerlo).
+    onsets = np.array([0.0, 0.9])
+    fuerzas = np.array([0.3, 0.78])
+    tonos = np.array([0, 4])
+    mapa = _mapa_fijo(120.0)
+    notas = generar_pista_melodica(onsets, fuerzas, tonos, mapa, "Expert")
+    assert len(notas) == 2
+    assert notas[1].forzado is None
 
 
 def test_acorde_nunca_es_hopo():
