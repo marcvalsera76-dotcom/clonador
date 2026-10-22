@@ -37,3 +37,32 @@ comparado con las canciones de rock con las que se ha calibrado
 tocar esos parámetros, convendría contrastarla con más referencias del
 mismo estilo (electrónica/pop con pads) o tratarla como caso aparte en vez
 de generalizar sus proporciones a todo el conversor.
+
+## Sonic Youth - Pink Steam (charter: Debugmod12)
+
+Rock alternativo/noise rock (Rather Ripped, 2006), 7 min, solo dificultad
+Expert cargada en el chart.
+
+- **SyncTrack**: 200 eventos en 418.9s, ~1 cada 2.1s — mismo orden de
+  magnitud que la referencia de Björk, otra confirmación independiente de
+  que la densidad de nuestro `sync_track()` fusionado va bien encaminada.
+- **Densidad**: 1221 notas en Expert ≈ 2.9 notas/seg.
+- **HOPO forzado (`N 5`) real: 105 notas (~8.6%)** — a diferencia de
+  Björk, aquí sí se usa, en una proporción moderada.
+- **Strum/tap forzado (`N 6`): CERO notas**, igual que en Björk.
+
+**Por qué importa el cruce de datos:** dos referencias reales e
+independientes, de estilos distintos (pad electrónico vs. rock ruidoso),
+coinciden en **0% de uso de `N 6`**. Eso ya no es un rasgo de un estilo
+concreto, es una señal de que el uso que hace `FUERZA_STRUM_FORZADO` /
+`forzado = 6` en `charting.py` de la nota tipo 6 puede estar mal
+planteado: por especificación del formato `.chart`, el tipo 6 no es
+"forzar strum" — es **marcar la nota como Tap Note** (se puede tocar sin
+rasgueo), un mecanismo distinto del que el código asume. Esto ya se había
+sospechado antes en esta conversación sin confirmarlo con datos reales;
+ahora hay dos referencias independientes que lo corroboran. Pendiente de
+revisar `FUERZA_STRUM_FORZADO` en `charting.py` (línea ~66) y decidir si
+ese caso debería usar otro mecanismo (o ninguno) en vez de `N 6`, **no
+tocado todavía** — requiere que el usuario confirme que quiere ese cambio,
+ya que afecta a cómo se sienten todas las canciones ya generadas.
+
